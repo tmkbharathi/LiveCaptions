@@ -1,0 +1,38 @@
+# .NET
+bin/
+obj/
+*.user
+*.userosscache
+*.sln.docstates
+
+# Visual Studio
+.vs/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+build/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# VS Code
+.vscode/
+
+# GStreamer / Native
+gstreamer/
+
+# Whisper Models
+*.bin
+
+# OS Gen
+.DS_Store
+Thumbs.db
+
+# Other
+*.log
+test.txt
+build_log_x64.txt
+# Physical 'nul' file (should not exist but included if accidentally created)
+nul

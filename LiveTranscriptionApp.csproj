@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <StartupObject>LiveTranscriptionApp.Program</StartupObject>
+    
+    <!-- Force win-x64 to ensure native DLLs are copied correctly -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Platform>x64</Platform>
+    
+    <!-- Explicitly disable default globbing for XAML to fix MC3074 -->
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Whisper.net" Version="1.7.0" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.7.0" />
+    <!-- Core GStreamer bindings -->
+    <PackageReference Include="GstSharpBundle" Version="1.24.3-preview6" />
+    <!-- Native GStreamer binaries for Windows x64 -->
+    <PackageReference Include="GstSharpBundle.Windows.X64" Version="1.24.3-preview6" />
+  </ItemGroup>
+
+</Project>
