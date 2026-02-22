@@ -26,6 +26,8 @@ namespace LiveTranscriptionApp
             var modelType = GgmlType.BaseEn;
             if (modelName == "tiny.en") modelType = GgmlType.TinyEn;
             else if (modelName == "small.en") modelType = GgmlType.SmallEn;
+            else if (modelName == "base.en") modelType = GgmlType.BaseEn;
+            else if (modelName == "turbo") modelType = GgmlType.LargeV3Turbo;
 
             using var modelStream = await WhisperGgmlDownloader.GetGgmlModelAsync(modelType);
             using (var fileStream = File.Create(modelPath))

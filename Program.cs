@@ -36,70 +36,128 @@ namespace LiveTranscriptionApp
         private static void RunApp()
         {
             var app = new Application();
+
+            double screenWidth = SystemParameters.WorkArea.Width;
+            double windowWidth = Math.Max(600, screenWidth - 40);
+            double windowHeight = 110; // Fits exactly 2 lines of 26px text + padding
+
             var window = new Window
             {
-                Title = "Live Transcriptions",
-                Height = 120, // Enough for 2 lines of text
-                Width = 800,
-                MinHeight = 120, // Min height for two lines of text
-                MinWidth = 500, // Min width for subtitle length
+                Title = "Live Captions",
+                Height = windowHeight,
+                Width = windowWidth,
+                MinHeight = windowHeight,
+                MinWidth = 600,
                 ShowInTaskbar = false,
                 WindowStyle = WindowStyle.None,
                 AllowsTransparency = true,
                 Background = Brushes.Transparent,
                 Topmost = true,
                 WindowStartupLocation = WindowStartupLocation.Manual,
+                ResizeMode = ResizeMode.CanResize
             };
 
-            // Position window at bottom of the primary screen using WPF's own API
-            window.Left = 100;
-            window.Top = SystemParameters.WorkArea.Bottom - 120;
+            // Position at bottom-center of the screen
+            window.Left = (SystemParameters.WorkArea.Width - windowWidth) / 2;
+            window.Top = SystemParameters.WorkArea.Bottom - windowHeight - 12;
 
-            // Enable resizing in all directions for a borderless window
+            // Prevent maximizing
+            window.StateChanged += (s, e) => {
+                if (window.WindowState == WindowState.Maximized)
+                    window.WindowState = WindowState.Normal;
+            };
+
+            // Borderless window chrome
             var chrome = new System.Windows.Shell.WindowChrome
             {
                 CaptionHeight = 0,
-                ResizeBorderThickness = new Thickness(7), // Increased hit area
+                ResizeBorderThickness = new Thickness(5),
                 GlassFrameThickness = new Thickness(0),
                 CornerRadius = new CornerRadius(0)
             };
             System.Windows.Shell.WindowChrome.SetWindowChrome(window, chrome);
 
-            // Pin to all virtual desktops after window is shown
             window.SourceInitialized += (s, e) => PinToAllDesktops(window);
 
-            var grid = new Grid
+            // Root grid (transparent, for hit-testing)
+            var rootGrid = new Grid
             {
-                Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)) // Nearly transparent (1/255) for hit-testing
+                Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0))
             };
-            window.Content = grid;
+            window.Content = rootGrid;
 
-            var border = new Border
+            // Dark semi-transparent overlay — with border
+            var background = new Border
             {
-                Background = new SolidColorBrush(Color.FromArgb(180, 20, 20, 20)),
+                Background = new SolidColorBrush(Color.FromArgb(180, 30, 30, 30)),
                 BorderBrush = new SolidColorBrush(Color.FromArgb(100, 255, 255, 255)),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(20)
+                Padding = new Thickness(20, 10, 20, 10)
             };
 
-            var toolbar = new StackPanel
+            // Two-line subtitle display
+            var line1Block = new TextBlock
+            {
+                Text = "",
+                Foreground = new SolidColorBrush(Color.FromArgb(180, 210, 210, 210)),
+                FontSize = 26,
+                FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
+                TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 0, 0, 2)
+            };
+
+            var line2Block = new TextBlock
+            {
+                Text = "Loading...",
+                Foreground = Brushes.White,
+                FontSize = 26,
+                FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
+                TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+
+            var textPanel = new StackPanel { Orientation = Orientation.Vertical, VerticalAlignment = VerticalAlignment.Center };
+            textPanel.Children.Add(line1Block);
+            textPanel.Children.Add(line2Block);
+
+            // EQ bars
+            var rnd = new Random();
+            var eqPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 14, 0),
+                Height = 36
+            };
+            var bars = new[]
+            {
+                new Border { Width = 6, Height = 4, Background = Brushes.LimeGreen, CornerRadius = new CornerRadius(3), Margin = new Thickness(2, 0, 2, 0), VerticalAlignment = VerticalAlignment.Bottom },
+                new Border { Width = 6, Height = 4, Background = Brushes.Yellow, CornerRadius = new CornerRadius(3), Margin = new Thickness(2, 0, 2, 0), VerticalAlignment = VerticalAlignment.Bottom },
+                new Border { Width = 6, Height = 4, Background = Brushes.Red, CornerRadius = new CornerRadius(3), Margin = new Thickness(2, 0, 2, 0), VerticalAlignment = VerticalAlignment.Bottom }
+            };
+            foreach (var b in bars) eqPanel.Children.Add(b);
+
+            // Content layout: [EQ] [Text]
+            var contentGrid = new Grid();
+            contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            Grid.SetColumn(eqPanel, 0);
+            Grid.SetColumn(textPanel, 1);
+            contentGrid.Children.Add(eqPanel);
+            contentGrid.Children.Add(textPanel);
+
+            background.Child = contentGrid;
+            rootGrid.Children.Add(background);
+
+            // Settings ⚙ and Close ✕ buttons — top right
+            var buttonPanel = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(5)
-            };
-
-            var textBlock = new TextBlock
-            {
-                Text = "Loading...",
-                Foreground = Brushes.White,
-                FontSize = 18,
-                TextWrapping = TextWrapping.Wrap,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                TextAlignment = TextAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Center
+                Margin = new Thickness(0, 8, 10, 0)
             };
 
             var settingsButton = new Button
@@ -112,128 +170,107 @@ namespace LiveTranscriptionApp
                 BorderThickness = new Thickness(0),
                 FontSize = 18,
                 Cursor = System.Windows.Input.Cursors.Hand,
-                ToolTip = "Settings"
+                ToolTip = "Settings",
+                Margin = new Thickness(0, 0, 4, 0)
             };
 
             var closeButton = new Button
             {
-                Content = "➜]",
+                Content = "✕",
                 Width = 30,
                 Height = 30,
                 Background = Brushes.Transparent,
                 Foreground = Brushes.Gray,
                 BorderThickness = new Thickness(0),
-                FontSize = 18,
+                FontSize = 16,
                 Cursor = System.Windows.Input.Cursors.Hand,
                 ToolTip = "Close"
             };
 
             settingsButton.MouseEnter += (s, e) => { settingsButton.Background = new SolidColorBrush(Color.FromArgb(50, 255, 255, 255)); settingsButton.Foreground = Brushes.White; };
             settingsButton.MouseLeave += (s, e) => { settingsButton.Background = Brushes.Transparent; settingsButton.Foreground = Brushes.Gray; };
-            settingsButton.Click += (s, e) => MessageBox.Show("Settings feature coming soon!", "Settings", MessageBoxButton.OK, MessageBoxImage.Information);
+            settingsButton.Click += (s, e) => MessageBox.Show("Settings coming soon!", "Settings", MessageBoxButton.OK, MessageBoxImage.Information);
 
             closeButton.MouseEnter += (s, e) => { closeButton.Background = Brushes.Red; closeButton.Foreground = Brushes.White; };
             closeButton.MouseLeave += (s, e) => { closeButton.Background = Brushes.Transparent; closeButton.Foreground = Brushes.Gray; };
             closeButton.Click += (s, e) => Application.Current.Shutdown();
 
-            toolbar.Children.Add(settingsButton);
-            toolbar.Children.Add(closeButton);
+            buttonPanel.Children.Add(settingsButton);
+            buttonPanel.Children.Add(closeButton);
+            rootGrid.Children.Add(buttonPanel);
 
-            var contentGrid = new Grid();
-            contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-            var eqPanel = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 15, 0),
-                Height = 30
-            };
-            
-            var bars = new[]
-            {
-                new Border { Width = 6, Height = 4, Background = Brushes.LimeGreen, CornerRadius = new CornerRadius(3), Margin = new Thickness(2, 0, 2, 0), VerticalAlignment = VerticalAlignment.Bottom },
-                new Border { Width = 6, Height = 4, Background = Brushes.Yellow, CornerRadius = new CornerRadius(3), Margin = new Thickness(2, 0, 2, 0), VerticalAlignment = VerticalAlignment.Bottom },
-                new Border { Width = 6, Height = 4, Background = Brushes.Red, CornerRadius = new CornerRadius(3), Margin = new Thickness(2, 0, 2, 0), VerticalAlignment = VerticalAlignment.Bottom }
-            };
-
-            foreach (var b in bars) eqPanel.Children.Add(b);
-
-            Grid.SetColumn(eqPanel, 0);
-            contentGrid.Children.Add(eqPanel);
-
-            textBlock.TextAlignment = TextAlignment.Left;
-            Grid.SetColumn(textBlock, 1);
-            contentGrid.Children.Add(textBlock);
-
-            border.Child = contentGrid;
-            grid.Children.Add(border);
-            grid.Children.Add(toolbar);
-
+            // Drag to move
             window.MouseLeftButtonDown += (s, e) => {
                 if (e.LeftButton == System.Windows.Input.MouseButtonState.Pressed)
                     window.DragMove();
             };
 
-            // Initialize transcription after the window is loaded to ensure UI thread is ready
+            // Initialize transcription after window is loaded
             window.Loaded += async (s, e) =>
             {
                 try
                 {
-                    textBlock.Text = "Downloading Whisper Model...";
+                    line2Block.Text = "Downloading Whisper Model...";
                     var modelPath = await ModelDownloader.EnsureModelExists("tiny.en");
+
+                    line2Block.Text = "Initializing...";
+                    string currentLine2 = "";
                     
-                    textBlock.Text = "Initializing GStreamer...";
-                    var rnd = new Random();
-                    var sentences = new System.Collections.Generic.List<string>();
+                    void UpdateSubtitle(string newText, bool isFinal)
+                    {
+                        if (newText.StartsWith("[") || newText.StartsWith("(") || newText.Contains("Thank you.") || newText.Trim().Length < 2) return;
+
+                        newText = newText.Trim();
+
+                        if (isFinal)
+                        {
+                            // Commit: slide line2 up to line1, start fresh on line2
+                            line1Block.Text = line2Block.Text;
+                            currentLine2 = newText;
+                            line2Block.Text = currentLine2;
+                        }
+                        else
+                        {
+                            // Live update: just update line2
+                            currentLine2 = newText;
+                            line2Block.Text = currentLine2;
+                        }
+                    }
+
                     var service = new TranscriptionService(
-                        text => {
-                            window.Dispatcher.Invoke(() => {
-                                // Filter out common hallucinatory empty phrases
-                                if (text.StartsWith("[") || text.StartsWith("(") || text.Contains("Thank you.") || text.Trim().Length < 2) return;
-                                
-                                sentences.Add(text);
-                                if (sentences.Count > 3) sentences.RemoveAt(0); // keep max 3 sentences for sliding history
-                                textBlock.Text = string.Join(" ", sentences);
-                            });
+                        (text, isFinal) => {
+                            window.Dispatcher.Invoke(() => UpdateSubtitle(text, isFinal));
                         },
                         level => {
-                            window.Dispatcher.InvokeAsync(() => 
+                            window.Dispatcher.InvokeAsync(() =>
                             {
-                                double baseHeight = 4 + (level * 80);
-                                if (baseHeight > 30) baseHeight = 30;
-                                bars[0].Height = Math.Max(4, baseHeight * (0.5 + rnd.NextDouble() * 0.5));
-                                bars[1].Height = Math.Max(4, baseHeight * (0.7 + rnd.NextDouble() * 0.3));
-                                bars[2].Height = Math.Max(4, baseHeight * (0.4 + rnd.NextDouble() * 0.6));
+                                double bh = 4 + (level * 80);
+                                if (bh > 36) bh = 36;
+                                bars[0].Height = Math.Max(4, bh * (0.5 + rnd.NextDouble() * 0.5));
+                                bars[1].Height = Math.Max(4, bh * (0.7 + rnd.NextDouble() * 0.3));
+                                bars[2].Height = Math.Max(4, bh * (0.4 + rnd.NextDouble() * 0.6));
                             });
                         }
                     );
-                    
+
                     await service.InitializeAsync(modelPath);
-                    textBlock.Text = "Listening...";
+                    line2Block.Text = "Listening...";
                     service.Start();
                 }
                 catch (Exception ex)
                 {
                     var errorMessage = ex.Message;
                     if (ex.InnerException != null)
-                    {
                         errorMessage += $"\nInner: {ex.InnerException.Message}";
-                    }
-                    
-                    // Check if model file actually exists and its size
+
                     var diagnosticModelName = "tiny.en";
                     var modelPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"{diagnosticModelName}.bin");
-                    if (File.Exists(modelPath)) {
-                        var size = new FileInfo(modelPath).Length;
-                        errorMessage += $"\nModel info: {modelPath} ({size} bytes)";
-                    } else {
-                        errorMessage += $"\nModel info: {modelPath} MISSING";
-                    }
+                    errorMessage += File.Exists(modelPath)
+                        ? $"\nModel: {modelPath} ({new FileInfo(modelPath).Length} bytes)"
+                        : $"\nModel: {modelPath} MISSING";
 
-                    textBlock.Text = $"Error: {ex.GetType().Name}";
-                    MessageBox.Show($"Failed to initialize transcription:\n{errorMessage}\n\nStack: {ex.StackTrace}", "Initialization Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    line2Block.Text = $"Error: {ex.GetType().Name}";
+                    MessageBox.Show($"Failed to initialize:\n{errorMessage}\n\nStack: {ex.StackTrace}", "Initialization Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             };
 
