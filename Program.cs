@@ -212,36 +212,22 @@ namespace LiveTranscriptionApp
                 {
                     line2Block.Text = "Downloading Whisper Model...";
                     var modelPath = await ModelDownloader.EnsureModelExists("tiny.en");
-
+                    line1Block.Text = "";
                     line2Block.Text = "Initializing...";
-                    string currentLine2 = "";
-                    
-                    void UpdateSubtitle(string newText, bool isFinal)
-                    {
-                        if (newText.StartsWith("[") || newText.StartsWith("(") || newText.Contains("Thank you.") || newText.Trim().Length < 2) return;
 
-                        newText = newText.Trim();
-
-                        if (isFinal)
-                        {
-                            // Commit: slide line2 up to line1, start fresh on line2
-                            line1Block.Text = line2Block.Text;
-                            currentLine2 = newText;
-                            line2Block.Text = currentLine2;
-                        }
-                        else
-                        {
-                            // Live update: just update line2
-                            currentLine2 = newText;
-                            line2Block.Text = currentLine2;
-                        }
-                    }
+                    // Output manager owns all subtitle display logic
+                    var outputManager = new Output.SubtitleOutputManager(
+                        text => line1Block.Text = text,
+                        text => line2Block.Text = text
+                    );
 
                     var service = new TranscriptionService(
-                        (text, isFinal) => {
-                            window.Dispatcher.Invoke(() => UpdateSubtitle(text, isFinal));
+                        (text, isFinal) =>
+                        {
+                            window.Dispatcher.Invoke(() => outputManager.OnText(text, isFinal));
                         },
-                        level => {
+                        level =>
+                        {
                             window.Dispatcher.InvokeAsync(() =>
                             {
                                 double bh = 4 + (level * 80);
@@ -254,7 +240,8 @@ namespace LiveTranscriptionApp
                     );
 
                     await service.InitializeAsync(modelPath);
-                    line2Block.Text = "Listening...";
+                    line1Block.Text = "Listening...";
+                    line2Block.Text = "";
                     service.Start();
                 }
                 catch (Exception ex)
