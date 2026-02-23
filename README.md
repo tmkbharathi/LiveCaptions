@@ -5,10 +5,10 @@ A real-time system audio transcription overlay for Windows, built with .NET 8, W
 ## Features
 
 - Captures system audio (speaker loopback) in real-time via GStreamer
-- Transcribes using OpenAI Whisper (`tiny.en` model) running locally on CPU
+- Transcribes using OpenAI Whisper (`tiny.en` model) with **Vulkan GPU Acceleration** and multi-thread CPU fallback
 - Overlay window always on top, pinned to all virtual desktops
-- 2-line subtitle display: text grows left-to-right, scrolls up when full
-- Sentence segmentation via VAD silence detection (1.2 s timer)
+- **Block-level subtitle rendering**: Line 1 freezes for readability, Line 2 fills and snaps upwards
+- Natural sentence segmentation via VAD silence detection (800ms timer)
 - Translation-ready output layer (`ITranslator` hook)
 
 ---
@@ -39,9 +39,9 @@ flowchart TD
 |---|---|---|
 | **Audio Source** | `Audio/IAudioResource.cs`<br>`Audio/GStreamerSource.cs` | GStreamer pipeline — captures loopback audio at 16 kHz mono S16LE. |
 | **Audio Buffer** | `Audio/AudioManager.cs` | Chunks PCM into 0.25 s blocks, maintains up to a 30 s safety rolling buffer (sliding window), tracks voice activity. |
-| **Transcription** | `Transcription/ITranscriptionEngine.cs`<br>`Transcription/WhisperEngine.cs` | Runs Whisper inference on session snapshot, returns transcript string. |
-| **Segmentation** | `Segmentation/ISentenceSegmenter.cs`<br>`Segmentation/VadSegmenter.cs` | Runs inference loop. Emits `isFinal=true` to slide the window on natural boundaries (punctuation: `.`, `?`, `!`), a 1.2 s silence pause, or a 10 s safety length limit. |
-| **Output** | `Output/IOutputManager.cs`<br>`Output/SubtitleOutputManager.cs` | Accumulates committed text, splits across 2 subtitle lines, scrolls up on overflow. |
+| **Transcription** | `Transcription/ITranscriptionEngine.cs`<br>`Transcription/WhisperEngine.cs` | Runs Whisper inference on session snapshot, optimized with Vulkan GPU support and `Environment.ProcessorCount` multithreading. |
+| **Segmentation** | `Segmentation/ISentenceSegmenter.cs`<br>`Segmentation/VadSegmenter.cs` | Runs inference loop. Emits `isFinal=true` to slide the window on natural sentence boundaries utilizing an 800ms silence pause or a 10s safety length limit. |
+| **Output** | `Output/IOutputManager.cs`<br>`Output/SubtitleOutputManager.cs` | Accumulates committed text and processes text into frozen reading blocks. Line 2 snaps to Line 1 when mathematically full for improved readability. |
 | **Facade** | `TranscriptionService.cs` | Wires all layers together; provides a unified API for the application. |
 
 ---
@@ -51,17 +51,18 @@ flowchart TD
 The captioning engine replicates the **Windows Live Captions sliding window** behaviour:
 
 1. **Continuous Speech:** As you speak, the audio buffer grows (up to 30 seconds), allowing Whisper to retain the context of the beginning of your sentence without chopping it off prematurely.
-2. **Natural Boundaries:** When you complete a sentence (detected by strong punctuation like `.`, `?`, `!`), the app instantly commits the text to the UI, clears the audio buffer, and seamlessly "slides" the window forward for the next sentence.
-3. **Pauses & Safety Nets:** If you pause for 1.2 seconds, or speak continuously without punctuation for 10 seconds, the window safely slides forward to prevent high CPU latency.
+2. **Natural Boundaries:** When you naturally pause for a breath (800ms silence), the app commits the text to the UI, clears the audio buffer, and seamlessly "slides" the window forward for the next sentence.
+3. **Safety Nets:** If you speak continuously without pausing for 10 seconds, the window safely slides forward to prevent high GPU/CPU latency accumulation.
 
-Text starts on **line 1** and grows left-to-right:
+### Block-Level Display Snapping
 
-```
-line 1: Hello this is a live caption test             ← grows here
-line 2: (empty)
-```
+The rendering engine is built for maximum readability by preventing text from smoothly sliding horizontally:
 
-When line 1 fills (~72 chars), overflow spills to line 2. When both lines fill, the oldest text drops off and everything scrolls up.
+1. Words fill **Line 1** left-to-right.
+2. Once Line 1 dynamically reaches the edge of the screen, it **freezes** in place perfectly solid.
+3. Continuing words fill **Line 2** left-to-right beneath it.
+4. Once Line 2 hits the edge of the screen, the entire exact contents of Line 2 **instantly snap upwards** to replace Line 1.
+5. Line 2 is now completely empty, and the newest words begin filling it left-to-right without shifting the frozen text above them.
 
 ## Prerequisites
 
@@ -106,12 +107,13 @@ Implement `ITranscriptionEngine` (e.g. Azure Speech, Vosk) and pass it to `VadSe
 
 ## Model Choice
 
-| Model | Size | Speed (CPU) | Accuracy |
+| Model | Size | Speed (Vulkan/GPU) | Accuracy |
 |---|---|---|---|
-| `tiny.en` | 74 MB | ~0.3–0.5 s/chunk | Good |
-| `base.en` | 142 MB | ~1–3 s/chunk | Better |
+| `tiny.en` | ~74 MB | ~0.1–0.2 s/read | Good (Ultra-Low Latency) |
+| `base.en` | ~142 MB | ~0.2–0.4 s/read | Better |
+| `large-v3-turbo` | ~3.02 GB | Fast | Excellent (Near Human) |
 
-`tiny.en` is recommended for real-time use. Change the model name in `Program.cs` → `EnsureModelExists("base.en")` if higher accuracy is needed.
+`tiny.en` is the default for instant real-time use. Because the project leverages `Whisper.net.Runtime.Vulkan` for hardware acceleration, you can easily upgrade to larger models if you have a dedicated GPU. Change the string in `Program.cs` → `EnsureModelExists("large-v3-turbo")` if absolute accuracy is preferred.
 
 ---
 
