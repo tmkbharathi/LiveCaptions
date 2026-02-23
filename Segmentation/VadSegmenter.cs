@@ -22,23 +22,29 @@ namespace LiveTranscriptionApp.Segmentation
         private readonly AudioManager         _audio;
         private readonly WhisperEngine        _whisper;
         private readonly int                  _silenceMs;
+        private readonly int                  _inferenceIntervalMs;
 
         private volatile string _lastPartialText = "";
         private volatile bool   _committed       = true;
         private Timer?          _silenceTimer;
         private CancellationTokenSource? _cts;
 
-        private const int MinSessionBytes = AudioManager.SampleRate
-                                          * AudioManager.BytesPerFrame / 2; // 0.5 s
+        // Throttle: don't invoke Whisper more often than once per interval.
+        private DateTime _lastInferenceTime = DateTime.MinValue;
+
+        // Minimum 0.5 s (2 chunks) of audio before first inference.
+        private const int MinSessionChunks = 2;
 
         /// <param name="audio">AudioManager to consume chunks from.</param>
         /// <param name="whisper">Whisper engine for inference.</param>
         /// <param name="silenceMs">Milliseconds of silence before sentence commit (default 1200).</param>
-        public VadSegmenter(AudioManager audio, WhisperEngine whisper, int silenceMs = 1200)
+        /// <param name="inferenceIntervalMs">Minimum milliseconds between successive Whisper calls (default 1000).</param>
+        public VadSegmenter(AudioManager audio, WhisperEngine whisper, int silenceMs = 1200, int inferenceIntervalMs = 1000)
         {
-            _audio     = audio;
-            _whisper   = whisper;
-            _silenceMs = silenceMs;
+            _audio               = audio;
+            _whisper             = whisper;
+            _silenceMs           = silenceMs;
+            _inferenceIntervalMs = inferenceIntervalMs;
 
             // Wire silence timer — starts in suspended state
             _silenceTimer = new Timer(OnSilenceTimerFired,
@@ -96,12 +102,17 @@ namespace LiveTranscriptionApp.Segmentation
 
                 if (!_audio.TryConsumeChunk()) continue;
 
-                // Need at least 0.5 s before first inference
-                if (_audio.SessionByteCount < MinSessionBytes) continue;
+                // Need at least 0.5 s (MinSessionChunks) before first inference
+                if (_audio.SessionByteCount < MinSessionChunks * AudioManager.ChunkSize) continue;
 
-                // Transcribe full session snapshot
+                // Throttle: skip if we fired Whisper too recently
+                var now = DateTime.UtcNow;
+                if ((now - _lastInferenceTime).TotalMilliseconds < _inferenceIntervalMs) continue;
+
+                // Transcribe fixed-size rolling session snapshot
                 var snapshot = _audio.GetSessionSnapshot();
                 string text  = await _whisper.TranscribeAsync(snapshot);
+                _lastInferenceTime = DateTime.UtcNow;
                 text         = text.Trim();
 
                 // Filter noise/hallucinations
