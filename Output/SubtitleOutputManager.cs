@@ -55,6 +55,21 @@ namespace LiveTranscriptionApp.Output
 
             text = text.Trim();
 
+            // Run Profanity Filter
+            if (Preferences.FilterProfanity)
+            {
+                var badWords = new[] { "fuck", "shit", "bitch", "asshole", "damn", "cunt", "fucking", "bullshit" };
+                foreach (var word in badWords)
+                {
+                    // Case-insensitive replace with asterisks
+                    text = System.Text.RegularExpressions.Regex.Replace(
+                        text, 
+                        $@"\b{word}\b", 
+                        "***", 
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                }
+            }
+
             // Optional translation
             if (Translator != null)
                 text = Translator.Translate(text);

@@ -24,33 +24,55 @@ namespace LiveTranscriptionApp.Audio
             Gst.Application.Init();
 
             _pipeline = new Pipeline("gst-audio-source");
-            var source  = ElementFactory.Make("wasapi2src",   "source");
+            
+            // 1. Core Output Pipeline components
             var convert = ElementFactory.Make("audioconvert", "convert");
             var resample= ElementFactory.Make("audioresample","resample");
             var sink    = ElementFactory.Make("appsink",      "sink");
 
-            if (source == null || convert == null || resample == null || sink == null)
-            {
-                var missing = string.Join(", ",
-                    new[] {
-                        source   == null ? "wasapi2src"    : null,
-                        convert  == null ? "audioconvert"  : null,
-                        resample == null ? "audioresample" : null,
-                        sink     == null ? "appsink"       : null
-                    }.Where(x => x != null));
-                throw new Exception($"GStreamer elements missing: {missing}. Is GStreamer installed?");
-            }
-
-            // Loopback = capture system speaker output (not microphone)
-            source["loopback"] = true;
+            if (convert == null || resample == null || sink == null)
+                throw new Exception("GStreamer core elements missing (audioconvert, audioresample, appsink).");
 
             // 16kHz, Mono, 16-bit signed little-endian PCM
             sink["emit-signals"] = true;
             sink["caps"] = Caps.FromString("audio/x-raw,format=S16LE,channels=1,rate=16000");
             sink.Connect("new-sample", OnNewSample);
 
-            _pipeline.Add(source, convert, resample, sink);
-            Element.Link(source, convert, resample, sink);
+            // 2. Build conditional input components based on Preferences
+            if (Preferences.IncludeMicrophone)
+            {
+                // Both Speaker Loopback and Microphone input
+                var speakerSrc = ElementFactory.Make("wasapi2src", "speakerSrc");
+                var micSrc     = ElementFactory.Make("wasapi2src", "micSrc");
+                var mixer      = ElementFactory.Make("audiomixer", "mixer");
+
+                if (speakerSrc == null || micSrc == null || mixer == null)
+                    throw new Exception("GStreamer elements missing for dual-channel (wasapi2src, audiomixer).");
+
+                speakerSrc["loopback"] = true;
+                micSrc["loopback"] = false;
+
+                _pipeline.Add(speakerSrc, micSrc, mixer, convert, resample, sink);
+                
+                // Link sources to mixer conditionally
+                speakerSrc.Link(mixer);
+                micSrc.Link(mixer);
+                
+                // Link mixer to the standard output chain
+                Element.Link(mixer, convert, resample, sink);
+            }
+            else
+            {
+                // Standard: Only Speaker Loopback
+                var source = ElementFactory.Make("wasapi2src", "source");
+                if (source == null)
+                    throw new Exception("GStreamer element 'wasapi2src' missing.");
+
+                source["loopback"] = true;
+
+                _pipeline.Add(source, convert, resample, sink);
+                Element.Link(source, convert, resample, sink);
+            }
         }
 
         public void Start()

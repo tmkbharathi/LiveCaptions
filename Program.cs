@@ -39,7 +39,7 @@ namespace LiveTranscriptionApp
 
             double screenWidth = SystemParameters.WorkArea.Width;
             double windowWidth = Math.Max(600, screenWidth - 40);
-            double windowHeight = 110; // Fits exactly 2 lines of 26px text + padding
+            double windowHeight = 7; // Fits exactly 2 lines of 26px text + padding
 
             var window = new Window
             {
@@ -89,7 +89,7 @@ namespace LiveTranscriptionApp
             // Dark semi-transparent overlay — with border
             var background = new Border
             {
-                Background = new SolidColorBrush(Color.FromArgb(180, 30, 30, 30)),
+                Background = new SolidColorBrush(Color.FromArgb(255, 30, 30, 30)),
                 BorderBrush = new SolidColorBrush(Color.FromArgb(100, 255, 255, 255)),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
@@ -101,23 +101,23 @@ namespace LiveTranscriptionApp
             {
                 Text = " ", // Seed with space to prevent horizontal collapsing
                 Foreground = new SolidColorBrush(Color.FromArgb(180, 210, 210, 210)),
-                FontSize = 26,
+                FontSize = 20,
                 FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
                 TextWrapping = TextWrapping.NoWrap,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(0, 0, 0, 2),
-                MinHeight = 36 // Prevent vertical jumping when empty
+                MinHeight = 26 // Prevent vertical jumping when empty (scaled for 20px)
             };
 
             var line2Block = new TextBlock
             {
                 Text = "Loading...",
                 Foreground = Brushes.White,
-                FontSize = 26,
+                FontSize = 20,
                 FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
                 TextWrapping = TextWrapping.NoWrap,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                MinHeight = 36 // Prevent vertical jumping when empty
+                MinHeight = 26 // Prevent vertical jumping when empty
             };
 
 
@@ -125,34 +125,26 @@ namespace LiveTranscriptionApp
             textPanel.Children.Add(line1Block);
             textPanel.Children.Add(line2Block);
 
-            // EQ bars
-            var rnd = new Random();
-            var eqPanel = new StackPanel
+            // Audio Indicator Dot
+            var audioIndicator = new Border
             {
-                Orientation = Orientation.Horizontal,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 14, 0),
-                Height = 36
+                Width = 8,
+                Height = 8,
+                Background = new SolidColorBrush(Color.FromRgb(204, 85, 0)), // Dark orange
+                CornerRadius = new CornerRadius(4),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 10, 10),
+                Opacity = 0 // Hidden by default until audio is detected
             };
-            var bars = new[]
-            {
-                new Border { Width = 6, Height = 4, Background = Brushes.LimeGreen, CornerRadius = new CornerRadius(3), Margin = new Thickness(2, 0, 2, 0), VerticalAlignment = VerticalAlignment.Bottom },
-                new Border { Width = 6, Height = 4, Background = Brushes.Yellow, CornerRadius = new CornerRadius(3), Margin = new Thickness(2, 0, 2, 0), VerticalAlignment = VerticalAlignment.Bottom },
-                new Border { Width = 6, Height = 4, Background = Brushes.Red, CornerRadius = new CornerRadius(3), Margin = new Thickness(2, 0, 2, 0), VerticalAlignment = VerticalAlignment.Bottom }
-            };
-            foreach (var b in bars) eqPanel.Children.Add(b);
 
-            // Content layout: [EQ] [Text]
+            // Content layout: [Text]
             var contentGrid = new Grid();
-            contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            Grid.SetColumn(eqPanel, 0);
-            Grid.SetColumn(textPanel, 1);
-            contentGrid.Children.Add(eqPanel);
             contentGrid.Children.Add(textPanel);
 
             background.Child = contentGrid;
             rootGrid.Children.Add(background);
+            rootGrid.Children.Add(audioIndicator);
 
             // Settings ⚙ and Close ✕ buttons — top right
             var buttonPanel = new StackPanel
@@ -192,7 +184,184 @@ namespace LiveTranscriptionApp
 
             settingsButton.MouseEnter += (s, e) => { settingsButton.Background = new SolidColorBrush(Color.FromArgb(50, 255, 255, 255)); settingsButton.Foreground = Brushes.White; };
             settingsButton.MouseLeave += (s, e) => { settingsButton.Background = Brushes.Transparent; settingsButton.Foreground = Brushes.Gray; };
-            settingsButton.Click += (s, e) => MessageBox.Show("Settings coming soon!", "Settings", MessageBoxButton.OK, MessageBoxImage.Information);
+            
+            // Create inline Settings Dropdown
+            var settingsPopup = new System.Windows.Controls.Primitives.Popup
+            {
+                PlacementTarget = settingsButton,
+                Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+                StaysOpen = false,
+                AllowsTransparency = true
+            };
+
+            var popupBorder = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(240, 30, 30, 30)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(100, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(5),
+                Padding = new Thickness(15),
+                Margin = new Thickness(0, 5, 10, 0)
+            };
+
+            var settingsStack = new StackPanel();
+
+            var micCheck = new CheckBox 
+            { 
+                Content = "Include Microphone Audio", 
+                Foreground = Brushes.White,
+                IsChecked = Preferences.IncludeMicrophone,
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            micCheck.Checked += (s, e) => Preferences.IncludeMicrophone = true;
+            micCheck.Unchecked += (s, e) => Preferences.IncludeMicrophone = false;
+
+            var profanityCheck = new CheckBox 
+            { 
+                Content = "Filter Profanity", 
+                Foreground = Brushes.White,
+                IsChecked = Preferences.FilterProfanity,
+                Margin = new Thickness(0, 0, 0, 15)
+            };
+            profanityCheck.Checked += (s, e) => Preferences.FilterProfanity = true;
+            profanityCheck.Unchecked += (s, e) => Preferences.FilterProfanity = false;
+
+            var styleLabel = new TextBlock 
+            { 
+                Text = "Caption Style", 
+                Foreground = Brushes.Gray,
+                Margin = new Thickness(0, 0, 0, 5) 
+            };
+            var styleCombo = new ComboBox { Width = 180, HorizontalAlignment = HorizontalAlignment.Left };
+            styleCombo.Items.Add("Default");
+            styleCombo.Items.Add("White on Black");
+            styleCombo.Items.Add("Small Caps");
+            styleCombo.Items.Add("Large Text");
+            styleCombo.Items.Add("Yellow on Blue");
+            styleCombo.SelectedIndex = (int)Preferences.CurrentStyle;
+
+            settingsStack.Children.Add(micCheck);
+            settingsStack.Children.Add(profanityCheck);
+
+            var posLabel = new TextBlock { Text = "Window Position", Foreground = Brushes.Gray, Margin = new Thickness(0, 0, 0, 5) };
+            var posCombo = new ComboBox { Width = 180, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 15) };
+            posCombo.Items.Add("Bottom Center");
+            posCombo.Items.Add("Top Center");
+            posCombo.Items.Add("Left Center");
+            posCombo.Items.Add("Right Center");
+            posCombo.Items.Add("Top Left");
+            posCombo.Items.Add("Top Right");
+            posCombo.Items.Add("Bottom Left");
+            posCombo.Items.Add("Bottom Right");
+            posCombo.SelectedIndex = (int)Preferences.CurrentPosition;
+            
+            settingsStack.Children.Add(posLabel);
+            settingsStack.Children.Add(posCombo);
+            settingsStack.Children.Add(styleLabel);
+            settingsStack.Children.Add(styleCombo);
+            popupBorder.Child = settingsStack;
+            settingsPopup.Child = popupBorder;
+
+            Action applyPosition = () =>
+            {
+                double sw = SystemParameters.WorkArea.Width;
+                double sh = SystemParameters.WorkArea.Height;
+                double ww = window.ActualWidth > 0 ? window.ActualWidth : Math.Max(600, sw - 40);
+                double wh = window.ActualHeight > 0 ? window.ActualHeight : 70;
+
+                switch (Preferences.CurrentPosition)
+                {
+                    case WindowPosition.Bottom:
+                        window.Left = (sw - ww) / 2;
+                        window.Top = sh - wh - 20;
+                        break;
+                    case WindowPosition.Top:
+                        window.Left = (sw - ww) / 2;
+                        window.Top = 20;
+                        break;
+                    case WindowPosition.Left:
+                        window.Left = 20;
+                        window.Top = (sh - wh) / 2;
+                        break;
+                    case WindowPosition.Right:
+                        window.Left = sw - ww - 20;
+                        window.Top = (sh - wh) / 2;
+                        break;
+                    case WindowPosition.TopLeft:
+                        window.Left = 20;
+                        window.Top = 20;
+                        break;
+                    case WindowPosition.TopRight:
+                        window.Left = sw - ww - 20;
+                        window.Top = 20;
+                        break;
+                    case WindowPosition.BottomLeft:
+                        window.Left = 20;
+                        window.Top = sh - wh - 20;
+                        break;
+                    case WindowPosition.BottomRight:
+                        window.Left = sw - ww - 20;
+                        window.Top = sh - wh - 20;
+                        break;
+                }
+            };
+
+            posCombo.SelectionChanged += (s, e) => 
+            {
+                Preferences.CurrentPosition = (WindowPosition)posCombo.SelectedIndex;
+                applyPosition();
+            };
+
+            // Dynamic theme engine mapping
+            Action applyStyles = () =>
+            {
+                // Reset to Default Style
+                background.Background = new SolidColorBrush(Color.FromArgb(255, 30, 30, 30));
+                background.BorderBrush = new SolidColorBrush(Color.FromArgb(100, 255, 255, 255));
+                line1Block.Foreground = new SolidColorBrush(Color.FromArgb(180, 210, 210, 210));
+                line2Block.Foreground = Brushes.White;
+                line1Block.FontSize = 20;
+                line2Block.FontSize = 20;
+                System.Windows.Documents.Typography.SetCapitals(line1Block, FontCapitals.Normal);
+                System.Windows.Documents.Typography.SetCapitals(line2Block, FontCapitals.Normal);
+
+                switch (Preferences.CurrentStyle)
+                {
+                    case CaptionStyle.WhiteOnBlack:
+                        background.Background = new SolidColorBrush(Color.FromArgb(240, 0, 0, 0)); // Very dark/pure black
+                        line1Block.Foreground = Brushes.White;
+                        break;
+                    case CaptionStyle.SmallCaps:
+                        System.Windows.Documents.Typography.SetCapitals(line1Block, FontCapitals.SmallCaps);
+                        System.Windows.Documents.Typography.SetCapitals(line2Block, FontCapitals.SmallCaps);
+                        break;
+                    case CaptionStyle.LargeText:
+                        line1Block.FontSize = 38;
+                        line2Block.FontSize = 38;
+                        break;
+                    case CaptionStyle.YellowOnBlue:
+                        background.Background = new SolidColorBrush(Color.FromArgb(200, 0, 51, 153)); // Dark Blue
+                        background.BorderBrush = new SolidColorBrush(Color.FromArgb(150, 0, 102, 255));
+                        line1Block.Foreground = new SolidColorBrush(Color.FromArgb(200, 255, 255, 0)); // Pale Yellow
+                        line2Block.Foreground = Brushes.Yellow;
+                        break;
+                }
+
+                // Recalculate wrapping instantly anytime font size changes
+                window.MinHeight = (line1Block.FontSize * 3) + 20;
+            };
+
+            styleCombo.SelectionChanged += (s, e) => 
+            {
+                Preferences.CurrentStyle = (CaptionStyle)styleCombo.SelectedIndex;
+                applyStyles();
+            };
+
+            // Toggle Popup onClick
+            settingsButton.Click += (s, e) => 
+            {
+                settingsPopup.IsOpen = true;
+            };
 
             closeButton.MouseEnter += (s, e) => { closeButton.Background = Brushes.Red; closeButton.Foreground = Brushes.White; };
             closeButton.MouseLeave += (s, e) => { closeButton.Background = Brushes.Transparent; closeButton.Foreground = Brushes.Gray; };
@@ -211,6 +380,8 @@ namespace LiveTranscriptionApp
             // Initialize transcription after window is loaded
             window.Loaded += async (s, e) =>
             {
+                applyPosition();
+
                 try
                 {
                     line2Block.Text = "Downloading Whisper Model...";
@@ -223,7 +394,21 @@ namespace LiveTranscriptionApp
                         text => line1Block.Text = text,
                         text => line2Block.Text = text
                     );
-                    outputManager.CharsPerLine = (int)(windowWidth / 14.5); // Fill horizontal space evenly
+                    
+                    Func<int> calculateChars = () => 
+                    {
+                        double scaleFactor = line1Block.FontSize / 20.0;
+                        return (int)((window.ActualWidth / 11.5) / scaleFactor);
+                    };
+
+                    outputManager.CharsPerLine = calculateChars();
+
+                    // Dynamically recalculate char limit when the user resizes the window OR changes the font size
+                    window.SizeChanged += (sender, args) => outputManager.CharsPerLine = calculateChars();
+                    settingsButton.Click += (sender, args) => {
+                        // After settings close, ensure the character wrapping map recalculates for Large Text
+                        outputManager.CharsPerLine = calculateChars();
+                    };
 
                     var service = new TranscriptionService(
                         (text, isFinal) =>
@@ -234,11 +419,8 @@ namespace LiveTranscriptionApp
                         {
                             window.Dispatcher.InvokeAsync(() =>
                             {
-                                double bh = 4 + (level * 80);
-                                if (bh > 36) bh = 36;
-                                bars[0].Height = Math.Max(4, bh * (0.5 + rnd.NextDouble() * 0.5));
-                                bars[1].Height = Math.Max(4, bh * (0.7 + rnd.NextDouble() * 0.3));
-                                bars[2].Height = Math.Max(4, bh * (0.4 + rnd.NextDouble() * 0.6));
+                                // Show dark orange dot if any audio waveform is detected above baseline
+                                audioIndicator.Opacity = level > 0.01 ? 1.0 : 0.0;
                             });
                         }
                     );
