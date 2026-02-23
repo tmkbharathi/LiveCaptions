@@ -99,13 +99,14 @@ namespace LiveTranscriptionApp
             // Two-line subtitle display
             var line1Block = new TextBlock
             {
-                Text = "",
+                Text = " ", // Seed with space to prevent horizontal collapsing
                 Foreground = new SolidColorBrush(Color.FromArgb(180, 210, 210, 210)),
                 FontSize = 26,
                 FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
                 TextWrapping = TextWrapping.NoWrap,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                Margin = new Thickness(0, 0, 0, 2)
+                Margin = new Thickness(0, 0, 0, 2),
+                MinHeight = 36 // Prevent vertical jumping when empty
             };
 
             var line2Block = new TextBlock
@@ -115,8 +116,10 @@ namespace LiveTranscriptionApp
                 FontSize = 26,
                 FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
                 TextWrapping = TextWrapping.NoWrap,
-                TextTrimming = TextTrimming.CharacterEllipsis
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MinHeight = 36 // Prevent vertical jumping when empty
             };
+
 
             var textPanel = new StackPanel { Orientation = Orientation.Vertical, VerticalAlignment = VerticalAlignment.Center };
             textPanel.Children.Add(line1Block);
@@ -220,6 +223,7 @@ namespace LiveTranscriptionApp
                         text => line1Block.Text = text,
                         text => line2Block.Text = text
                     );
+                    outputManager.CharsPerLine = (int)(windowWidth / 14.5); // Fill horizontal space evenly
 
                     var service = new TranscriptionService(
                         (text, isFinal) =>

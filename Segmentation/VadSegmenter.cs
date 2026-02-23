@@ -121,12 +121,10 @@ namespace LiveTranscriptionApp.Segmentation
                     && !text.StartsWith("("))
                 {
                     _lastPartialText = text;
-
-                    // Sliding Window: Natural Sentence Boundaries or Max Length
-                    bool hasPunctuation = text.EndsWith(".") || text.EndsWith("?") || text.EndsWith("!");
+                    // Sliding Window: Max Length Safety Net (Wait for 800ms Silence Timer for natural breaks)
                     bool reachedMaxLength = _audio.SessionByteCount >= (40 * AudioManager.ChunkSize); // 10 seconds
 
-                    if (hasPunctuation || reachedMaxLength)
+                    if (reachedMaxLength)
                     {
                         OnSegment?.Invoke(text, true);  // isFinal = true (commit)
                         _lastPartialText = "";

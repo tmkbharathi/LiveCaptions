@@ -29,7 +29,9 @@ namespace LiveTranscriptionApp.Output
         /// </summary>
         public int CharsPerLine { get; set; } = 72;
 
-        private string _committedText = "";
+        // "Block-level snapping" state
+        private string _committedHistory = "";
+        private string _frozenLine1      = "";
 
         // ── Constructor ────────────────────────────────────────────────────────
         /// <param name="setLine1">Callback to update line 1 in the UI (must be thread-safe / dispatched).</param>
@@ -59,65 +61,90 @@ namespace LiveTranscriptionApp.Output
 
             if (isFinal)
             {
-                // Append committed utterance to history
-                _committedText = (_committedText + " " + text).Trim();
+                // Append the fully committed sentence to history
+                _committedHistory = (_committedHistory + " " + text).Trim();
 
-                // Cap to 4 line-widths to prevent unbounded growth
+                // To prevent infinite memory growth over hours, cap history
                 int maxLen = CharsPerLine * 4;
-                if (_committedText.Length > maxLen)
+                if (_committedHistory.Length > maxLen)
                 {
-                    int trimAt = _committedText.IndexOf(' ', _committedText.Length - maxLen);
+                    int trimAt = _committedHistory.IndexOf(' ', _committedHistory.Length - maxLen);
                     if (trimAt > 0)
-                        _committedText = _committedText.Substring(trimAt).TrimStart();
+                        _committedHistory = _committedHistory.Substring(trimAt).TrimStart();
                 }
 
-                SplitToLines(_committedText);
+                ProcessDisplayBlocks(_committedHistory);
             }
             else
             {
-                // Live partial: committed history + current live words
-                SplitToLines((_committedText + " " + text).Trim());
+                // Live preview: history + live incoming segment
+                ProcessDisplayBlocks((_committedHistory + " " + text).Trim());
             }
         }
 
-        // ── Line splitting ─────────────────────────────────────────────────────
+        // ── Block Dispatecer ───────────────────────────────────────────────────
         /// <summary>
-        /// Distributes <paramref name="text"/> across two subtitle lines.
-        /// Starts on line 1 and overflows left-to-right to line 2.
-        /// When both lines are full, oldest text drops off and everything scrolls up.
+        /// Calculates the layout of text into two discrete subtitle blocks.
+        /// Line 1 freezes in place. When line 2 overflows, line 2 instantly snaps
+        /// up to line 1 and clears line 2.
         /// </summary>
-        private void SplitToLines(string text)
+        private void ProcessDisplayBlocks(string fullSessionText)
         {
-            text = text.Trim();
-            int cpl = CharsPerLine;
+            if (string.IsNullOrEmpty(fullSessionText))
+            {
+                Render("", "");
+                return;
+            }
 
-            if (text.Length <= cpl)
-            {
-                // Fits entirely on line 1
-                _setLine1(text);
-                _setLine2("");
-            }
-            else if (text.Length <= cpl * 2)
-            {
-                // Spans both lines
-                int split = text.LastIndexOf(' ', cpl);
-                if (split < 0) split = cpl;
-                _setLine1(text.Substring(0, split).TrimEnd());
-                _setLine2(text.Substring(split).TrimStart());
-            }
-            else
-            {
-                // Overflows 2 lines → drop oldest, scroll up
-                int dropUntil     = text.Length - cpl * 2;
-                int wordBoundary  = text.IndexOf(' ', dropUntil);
-                if (wordBoundary < 0) wordBoundary = dropUntil;
-                string visible    = text.Substring(wordBoundary).TrimStart();
+            // We must rebuild the visual state exactly as if the text was typed left-to-right.
+            string currentLine1 = "";
+            string currentLine2 = "";
 
-                int split = visible.LastIndexOf(' ', cpl);
-                if (split < 0) split = Math.Min(cpl, visible.Length);
-                _setLine1(visible.Substring(0, split).TrimEnd());
-                _setLine2(visible.Substring(split).TrimStart());
+            // Split the full continuous incoming text into words
+            string[] words = fullSessionText.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (var word in words)
+            {
+                // Can the word fit on the active line we are currently filling?
+                // Logic: If Line 1 is not full, fill Line 1.
+                //        If Line 1 is full, fill Line 2.
+                //        If Line 2 is full, snap Line 2 into Line 1, and make the current word the start of a new Line 2.
+
+                bool fillsLine1 = currentLine1.Length == 0 ? word.Length <= CharsPerLine : (currentLine1.Length + 1 + word.Length) <= CharsPerLine;
+                
+                if (fillsLine1 && currentLine2.Length == 0) 
+                {
+                    // Filling Line 1 left-to-right
+                    currentLine1 = currentLine1.Length == 0 ? word : currentLine1 + " " + word;
+                }
+                else
+                {
+                    // Line 1 is full (or frozen). Now filling Line 2 left-to-right.
+                    bool fillsLine2 = currentLine2.Length == 0 ? word.Length <= CharsPerLine : (currentLine2.Length + 1 + word.Length) <= CharsPerLine;
+
+                    if (fillsLine2)
+                    {
+                        currentLine2 = currentLine2.Length == 0 ? word : currentLine2 + " " + word;
+                    }
+                    else
+                    {
+                        // **SNAP TRIGGERED**: Line 2 is completely full. 
+                        // The entire Line 2 instantly snaps upwards to become the new Line 1.
+                        currentLine1 = currentLine2;
+                        // The word that caused the overflow becomes the start of the brand new empty Line 2.
+                        currentLine2 = word;
+                    }
+                }
             }
+
+            _frozenLine1 = currentLine1;
+            Render(currentLine1, currentLine2);
+        }
+
+        private void Render(string l1, string l2)
+        {
+            _setLine1(string.IsNullOrEmpty(l1) ? " " : l1);
+            _setLine2(string.IsNullOrEmpty(l2) ? " " : l2);
         }
     }
 
