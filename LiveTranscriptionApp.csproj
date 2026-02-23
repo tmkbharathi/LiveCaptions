@@ -19,7 +19,7 @@
 
   <ItemGroup>
     <PackageReference Include="Whisper.net" Version="1.7.0" />
-    <PackageReference Include="Whisper.net.Runtime" Version="1.7.0" />
+    <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.7.0" />
     <!-- Core GStreamer bindings -->
     <PackageReference Include="GstSharpBundle" Version="1.24.3-preview6" />
     <!-- Native GStreamer binaries for Windows x64 -->

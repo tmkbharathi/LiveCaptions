@@ -17,29 +17,42 @@ A real-time system audio transcription overlay for Windows, built with .NET 8, W
 
 The codebase is organized into 6 clean, separated layers:
 
-```
-GStreamerSource  ──►  AudioManager  ──►  WhisperEngine
-      (Audio layer)        (Buffer)       (Transcription)
-                                               │
-                                         VadSegmenter
-                                       (Segmentation)
-                                               │
-                                    SubtitleOutputManager
-                                           (Output)
+```mermaid
+flowchart TD
+    G[GStreamerSource\nAudio layer] -->|PCM Data| A[AudioManager\nBuffer]
+    A -->|30s Sliding Window| W[WhisperEngine\nTranscription]
+    W -->|Raw Text| V[VadSegmenter\nSegmentation]
+    A -.->|Voice Activity| V
+    V -->|Final/Live Text| S[SubtitleOutputManager\nOutput]
+    
+    subgraph Facade
+    T[TranscriptionService]
+    end
+    T -.-> G
+    T -.-> A
+    T -.-> W
+    T -.-> V
+    T -.-> S
 ```
 
 | Layer | Files | Responsibility |
 |---|---|---|
-| **Audio Source** | `Audio/IAudioResource.cs`<br>`Audio/GStreamerSource.cs` | GStreamer pipeline — captures loopback audio at 16 kHz mono S16LE |
-| **Audio Buffer** | `Audio/AudioManager.cs` | Chunks PCM into 0.25 s blocks, maintains 3 s session buffer, tracks voice activity |
-| **Transcription** | `Transcription/ITranscriptionEngine.cs`<br>`Transcription/WhisperEngine.cs` | Runs Whisper inference on session snapshot, returns transcript string |
-| **Segmentation** | `Segmentation/ISentenceSegmenter.cs`<br>`Segmentation/VadSegmenter.cs` | Runs inference loop; fires `isFinal=true` via a 1.2 s silence timer |
-| **Output** | `Output/IOutputManager.cs`<br>`Output/SubtitleOutputManager.cs` | Accumulates committed text, splits across 2 subtitle lines, scrolls on overflow |
-| **Facade** | `TranscriptionService.cs` | Wires all layers together; backward-compatible constructor |
+| **Audio Source** | `Audio/IAudioResource.cs`<br>`Audio/GStreamerSource.cs` | GStreamer pipeline — captures loopback audio at 16 kHz mono S16LE. |
+| **Audio Buffer** | `Audio/AudioManager.cs` | Chunks PCM into 0.25 s blocks, maintains up to a 30 s safety rolling buffer (sliding window), tracks voice activity. |
+| **Transcription** | `Transcription/ITranscriptionEngine.cs`<br>`Transcription/WhisperEngine.cs` | Runs Whisper inference on session snapshot, returns transcript string. |
+| **Segmentation** | `Segmentation/ISentenceSegmenter.cs`<br>`Segmentation/VadSegmenter.cs` | Runs inference loop. Emits `isFinal=true` to slide the window on natural boundaries (punctuation: `.`, `?`, `!`), a 1.2 s silence pause, or a 10 s safety length limit. |
+| **Output** | `Output/IOutputManager.cs`<br>`Output/SubtitleOutputManager.cs` | Accumulates committed text, splits across 2 subtitle lines, scrolls up on overflow. |
+| **Facade** | `TranscriptionService.cs` | Wires all layers together; provides a unified API for the application. |
 
 ---
 
-## Subtitle Display Behaviour
+## Subtitle Display & Sliding Window
+
+The captioning engine replicates the **Windows Live Captions sliding window** behaviour:
+
+1. **Continuous Speech:** As you speak, the audio buffer grows (up to 30 seconds), allowing Whisper to retain the context of the beginning of your sentence without chopping it off prematurely.
+2. **Natural Boundaries:** When you complete a sentence (detected by strong punctuation like `.`, `?`, `!`), the app instantly commits the text to the UI, clears the audio buffer, and seamlessly "slides" the window forward for the next sentence.
+3. **Pauses & Safety Nets:** If you pause for 1.2 seconds, or speak continuously without punctuation for 10 seconds, the window safely slides forward to prevent high CPU latency.
 
 Text starts on **line 1** and grows left-to-right:
 
@@ -48,16 +61,7 @@ line 1: Hello this is a live caption test             ← grows here
 line 2: (empty)
 ```
 
-When line 1 fills (~72 chars), overflow spills to line 2:
-
-```
-line 1: Hello this is a live caption test running on
-line 2: my computer right now                         ← continues here
-```
-
-When both lines fill, the oldest text drops off and everything scrolls up. When you pause speaking (1.2 s silence), the current text is committed and line 2 clears for the next sentence.
-
----
+When line 1 fills (~72 chars), overflow spills to line 2. When both lines fill, the oldest text drops off and everything scrolls up.
 
 ## Prerequisites
 

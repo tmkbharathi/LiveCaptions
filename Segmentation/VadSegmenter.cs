@@ -37,9 +37,9 @@ namespace LiveTranscriptionApp.Segmentation
 
         /// <param name="audio">AudioManager to consume chunks from.</param>
         /// <param name="whisper">Whisper engine for inference.</param>
-        /// <param name="silenceMs">Milliseconds of silence before sentence commit (default 1200).</param>
-        /// <param name="inferenceIntervalMs">Minimum milliseconds between successive Whisper calls (default 1000).</param>
-        public VadSegmenter(AudioManager audio, WhisperEngine whisper, int silenceMs = 1200, int inferenceIntervalMs = 1000)
+        /// <param name="silenceMs">Milliseconds of silence before sentence commit (default 800).</param>
+        /// <param name="inferenceIntervalMs">Minimum milliseconds between successive Whisper calls (default 300).</param>
+        public VadSegmenter(AudioManager audio, WhisperEngine whisper, int silenceMs = 800, int inferenceIntervalMs = 300)
         {
             _audio               = audio;
             _whisper             = whisper;

@@ -21,6 +21,7 @@ namespace LiveTranscriptionApp.Transcription
             _factory   = WhisperFactory.FromPath(modelPath);
             _processor = _factory.CreateBuilder()
                 .WithLanguage("en")
+                .WithThreads(Environment.ProcessorCount) // Maximize CPU core usage
                 .Build();
             return Task.CompletedTask;
         }

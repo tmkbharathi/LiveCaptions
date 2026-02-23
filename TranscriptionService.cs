@@ -39,8 +39,8 @@ namespace LiveTranscriptionApp
             // 1. Transcription engine
             _whisper.InitializeAsync(modelPath);
 
-            // 2. Segmenter wires AudioManager + WhisperEngine
-            _segmenter         = new VadSegmenter(_audio, _whisper);
+            // 2. Segmenter wires AudioManager + WhisperEngine (with aggressive 800ms silence / 300ms inference)
+            _segmenter         = new VadSegmenter(_audio, _whisper, 800, 300);
             _segmenter.OnSegment += (text, isFinal) =>
                 _onTranscription(text, isFinal);
 
