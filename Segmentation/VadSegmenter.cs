@@ -121,8 +121,23 @@ namespace LiveTranscriptionApp.Segmentation
                     && !text.StartsWith("("))
                 {
                     _lastPartialText = text;
-                    _committed       = false;
-                    OnSegment?.Invoke(text, false);  // isFinal = false (partial)
+
+                    // Sliding Window: Natural Sentence Boundaries or Max Length
+                    bool hasPunctuation = text.EndsWith(".") || text.EndsWith("?") || text.EndsWith("!");
+                    bool reachedMaxLength = _audio.SessionByteCount >= (40 * AudioManager.ChunkSize); // 10 seconds
+
+                    if (hasPunctuation || reachedMaxLength)
+                    {
+                        OnSegment?.Invoke(text, true);  // isFinal = true (commit)
+                        _lastPartialText = "";
+                        _committed       = true;
+                        _audio.ClearSession();
+                    }
+                    else
+                    {
+                        _committed       = false;
+                        OnSegment?.Invoke(text, false);  // isFinal = false (partial live text)
+                    }
                 }
 
                 // Clear stale audio after 3 s of silence

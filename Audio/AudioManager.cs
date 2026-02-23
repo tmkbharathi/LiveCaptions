@@ -23,9 +23,10 @@ namespace LiveTranscriptionApp.Audio
 
         /// <summary>
         /// Maximum number of chunks kept in the rolling session window.
-        /// 8 chunks × 0.25 s = 2 s — a constant window so Whisper latency is always bounded.
+        /// 120 chunks × 0.25 s = 30 s — Safety net window to prevent memory explosion, 
+        /// but long enough to capture natural sentence structures (sliding window).
         /// </summary>
-        public const int MaxSessionChunks = 8;            // 2 s
+        public const int MaxSessionChunks = 120;          // 30 s
 
         private const float SilenceThreshold = 0.05f;
 
