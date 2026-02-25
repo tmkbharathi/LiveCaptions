@@ -33,7 +33,7 @@ namespace LiveTranscriptionApp.Segmentation
         private DateTime _lastInferenceTime = DateTime.MinValue;
         private DateTime _continuousTagStartTime = DateTime.MinValue;
 
-        // Minimum 0.5 s (2 chunks) of audio before first inference.
+        // Minimum 0.2 s (2 chunks) of audio before first inference.
         private const int MinSessionChunks = 2;
 
         /// <param name="audio">AudioManager to consume chunks from.</param>
@@ -115,7 +115,7 @@ namespace LiveTranscriptionApp.Segmentation
 
                 if (!_audio.TryConsumeChunk()) continue;
 
-                // Need at least 0.5 s (MinSessionChunks) before first inference
+                // Need at least 0.2 s (MinSessionChunks) before first inference
                 if (_audio.SessionByteCount < MinSessionChunks * AudioManager.ChunkSize) continue;
 
                 // Throttle: skip if we fired Whisper too recently
@@ -199,7 +199,7 @@ namespace LiveTranscriptionApp.Segmentation
 
                 _lastPartialText = text;
                     // Sliding Window: Max Length Safety Net (Wait for 800ms Silence Timer for natural breaks)
-                    bool reachedMaxLength = _audio.SessionByteCount >= (40 * AudioManager.ChunkSize); // 10 seconds
+                    bool reachedMaxLength = _audio.SessionByteCount >= (100 * AudioManager.ChunkSize); // 10 seconds
 
                     if (reachedMaxLength)
                     {

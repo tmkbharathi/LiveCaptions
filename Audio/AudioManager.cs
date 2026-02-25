@@ -19,14 +19,14 @@ namespace LiveTranscriptionApp.Audio
         // 16 kHz × 2 bytes per sample = 32 000 bytes per second
         public const int SampleRate    = 16000;
         public const int BytesPerFrame = 2;               // S16LE
-        public const int ChunkSize     = SampleRate * BytesPerFrame / 4;  // 0.25 s = 8000 bytes
+        public const int ChunkSize     = SampleRate * BytesPerFrame / 10;  // 0.1 s = 3200 bytes
 
         /// <summary>
         /// Maximum number of chunks kept in the rolling session window.
-        /// 120 chunks × 0.25 s = 30 s — Safety net window to prevent memory explosion, 
+        /// 300 chunks × 0.1 s = 30 s — Safety net window to prevent memory explosion, 
         /// but long enough to capture natural sentence structures (sliding window).
         /// </summary>
-        public const int MaxSessionChunks = 120;          // 30 s
+        public const int MaxSessionChunks = 300;          // 30 s
 
         private const float SilenceThreshold = 0.05f;
 
