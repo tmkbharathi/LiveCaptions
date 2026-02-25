@@ -8,7 +8,7 @@ namespace LiveTranscriptionApp.Audio
     /// Captures system audio (loopback) via wasapi2src and produces
     /// 16kHz Mono S16LE PCM chunks via the OnAudioData event.
     /// </summary>
-    public class GStreamerSource : IAudioResource
+    public class GStreamerSource : IAudioResource, IDisposable
     {
         public event AudioDataHandler? OnAudioData;
 
@@ -86,6 +86,13 @@ namespace LiveTranscriptionApp.Audio
         {
             _isRunning = false;
             _pipeline?.SetState(State.Null);
+        }
+
+        public void Dispose()
+        {
+            Stop();
+            _pipeline?.Dispose();
+            _pipeline = null;
         }
 
         private void OnNewSample(object sender, GLib.SignalArgs args)

@@ -15,7 +15,7 @@ namespace LiveTranscriptionApp.Segmentation
     ///   of the Whisper processing loop, so commits always fire even when Whisper is busy.
     /// - Session buffer is cleared after each commit and after 3 s of continuous silence.
     /// </summary>
-    public class VadSegmenter : ISentenceSegmenter
+    public class VadSegmenter : ISentenceSegmenter, IDisposable
     {
         public event Action<string, bool>? OnSegment;
 
@@ -31,6 +31,7 @@ namespace LiveTranscriptionApp.Segmentation
 
         // Throttle: don't invoke Whisper more often than once per interval.
         private DateTime _lastInferenceTime = DateTime.MinValue;
+        private DateTime _continuousTagStartTime = DateTime.MinValue;
 
         // Minimum 0.5 s (2 chunks) of audio before first inference.
         private const int MinSessionChunks = 2;
@@ -70,6 +71,13 @@ namespace LiveTranscriptionApp.Segmentation
         {
             _cts?.Cancel();
             _silenceTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        }
+
+        public void Dispose()
+        {
+            Stop();
+            _cts?.Dispose();
+            _silenceTimer?.Dispose();
         }
 
         // ── Silence timer callback ─────────────────────────────────────────────
@@ -113,14 +121,78 @@ namespace LiveTranscriptionApp.Segmentation
                 var snapshot = _audio.GetSessionSnapshot();
                 string text  = await _whisper.TranscribeAsync(snapshot);
                 _lastInferenceTime = DateTime.UtcNow;
-                text         = text.Trim();
+                // Check if the output consists entirely of non-speech tags
+                string stripped = System.Text.RegularExpressions.Regex.Replace(text, @"\[.*?\]", "");
+                stripped = System.Text.RegularExpressions.Regex.Replace(stripped, @"\(.*?\)", "");
+                stripped = stripped.Replace("♪", "").Trim();
 
-                // Filter noise/hallucinations
-                if (!string.IsNullOrEmpty(text)
-                    && !text.StartsWith("[")
-                    && !text.StartsWith("("))
+                bool isPureTag = (stripped.Length < 2 && text.Trim().Length >= 2);
+
+                if (!isPureTag)
                 {
-                    _lastPartialText = text;
+                    // Strip out hallucinatory non-speech tags (e.g. [grunt]) inside normal sentences
+                    text = stripped;
+                    _continuousTagStartTime = DateTime.MinValue;
+                    
+                    if (string.IsNullOrWhiteSpace(text) || text.Length < 2)
+                        continue;
+                }
+                else
+                {
+                    // If it is purely a tag like [music], wait 4 seconds of continuous tags before displaying it.
+                    if (_continuousTagStartTime == DateTime.MinValue)
+                        _continuousTagStartTime = DateTime.UtcNow;
+
+                    if ((DateTime.UtcNow - _continuousTagStartTime).TotalSeconds < 4.0)
+                        continue; // Hide it until 4 seconds have passed
+
+                    text = text.Trim(); // Allow the pure tag to pass through
+                }
+                
+                // Filter common Whisper silence hallucinations
+                if (text.Equals("Thank you.", StringComparison.OrdinalIgnoreCase) || 
+                    text.Equals("Thank you", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Hallucination Drop Protection
+                // If the new text completely loses the context of the previous long text (common with sudden loud noises),
+                // we forcefully commit the previous text so it doesn't get erased from the screen.
+                if (!string.IsNullOrEmpty(_lastPartialText))
+                {
+                    var oldW = _lastPartialText.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    var newW = text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+                    if (oldW.Length >= 3 && newW.Length > 0 && newW.Length < oldW.Length)
+                    {
+                        int matchCount = 0;
+                        foreach (var w1 in oldW)
+                        {
+                            if (w1.Length <= 2) continue; // Ignore short filler words
+                            foreach (var w2 in newW)
+                            {
+                                if (string.Equals(w1, w2, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    matchCount++;
+                                    break;
+                                }
+                            }
+                        }
+
+                        int oldSigWords = System.Linq.Enumerable.Count(oldW, x => x.Length > 2);
+                        if (oldSigWords >= 2 && matchCount == 0)
+                        {
+                            // Context completely broken! Force commit old string to protect it.
+                            OnSegment?.Invoke(_lastPartialText, true);
+                            _audio.ClearSession();
+                            _lastPartialText = text;
+                            _committed = false;
+                            OnSegment?.Invoke(text, false);
+                            continue;
+                        }
+                    }
+                }
+
+                _lastPartialText = text;
                     // Sliding Window: Max Length Safety Net (Wait for 800ms Silence Timer for natural breaks)
                     bool reachedMaxLength = _audio.SessionByteCount >= (40 * AudioManager.ChunkSize); // 10 seconds
 
@@ -136,7 +208,6 @@ namespace LiveTranscriptionApp.Segmentation
                         _committed       = false;
                         OnSegment?.Invoke(text, false);  // isFinal = false (partial live text)
                     }
-                }
 
                 // Clear stale audio after 3 s of silence
                 if ((DateTime.UtcNow - _audio.LastVoiceActivity).TotalSeconds > 3.0)

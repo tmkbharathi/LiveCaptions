@@ -22,28 +22,39 @@ namespace LiveTranscriptionApp
 
             Console.WriteLine($"Downloading model {modelName}...");
             
-            // Map string name to GgmlType
             var modelType = GgmlType.BaseEn;
-            if (modelName == "tiny.en") modelType = GgmlType.TinyEn;
+            if (modelName == "tiny") modelType = GgmlType.Tiny;
+            else if (modelName == "tiny.en") modelType = GgmlType.TinyEn;
             else if (modelName == "small.en") modelType = GgmlType.SmallEn;
             else if (modelName == "base.en") modelType = GgmlType.BaseEn;
             else if (modelName == "turbo") modelType = GgmlType.LargeV3Turbo;
 
-            using var modelStream = await WhisperGgmlDownloader.GetGgmlModelAsync(modelType);
-            using (var fileStream = File.Create(modelPath))
+            try
             {
-                await modelStream.CopyToAsync(fileStream);
-            }
+                using var modelStream = await WhisperGgmlDownloader.GetGgmlModelAsync(modelType);
+                using (var fileStream = File.Create(modelPath))
+                {
+                    await modelStream.CopyToAsync(fileStream);
+                }
 
-            // Verify the file was created and has content
-            var fileInfo = new FileInfo(modelPath);
-            if (fileInfo.Length < 1000000) // Whisper models are generally > 1MB
+                // Verify the file was created and has content
+                var fileInfo = new FileInfo(modelPath);
+                if (fileInfo.Length < 1000000) // Whisper models are generally > 1MB
+                {
+                    throw new Exception($"Downloaded model file is too small ({fileInfo.Length} bytes). It might be corrupted.");
+                }
+
+                return modelPath;
+            }
+            catch (Exception ex)
             {
-                File.Delete(modelPath);
-                throw new Exception($"Downloaded model file is too small ({fileInfo.Length} bytes). It might be corrupted.");
+                // Prevent corrupted partial downloads from breaking future launches
+                if (File.Exists(modelPath))
+                {
+                    try { File.Delete(modelPath); } catch { /* Ignore cleanup errors */ }
+                }
+                throw new Exception($"Failed to download or verify Whisper model: {ex.Message}", ex);
             }
-
-            return modelPath;
         }
     }
 }

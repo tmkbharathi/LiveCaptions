@@ -35,18 +35,19 @@ namespace LiveTranscriptionApp
 
         private static void RunApp()
         {
+            AppSettingsManager.Load();
             var app = new Application();
 
             double screenWidth = SystemParameters.WorkArea.Width;
-            double windowWidth = Math.Max(600, screenWidth - 40);
-            double windowHeight = 7; // Fits exactly 2 lines of 26px text + padding
+            double windowWidth = Preferences.SavedWidth > 0 ? Preferences.SavedWidth : Math.Max(600, screenWidth - 40);
+            double windowHeight = Preferences.SavedHeight > 0 ? Preferences.SavedHeight : 70; // Fits exactly 2 lines of 26px text + padding
 
             var window = new Window
             {
                 Title = "Live Captions",
                 Height = windowHeight,
                 Width = windowWidth,
-                MinHeight = windowHeight,
+                MinHeight = 70,
                 MinWidth = 600,
                 ShowInTaskbar = false,
                 WindowStyle = WindowStyle.None,
@@ -57,9 +58,29 @@ namespace LiveTranscriptionApp
                 ResizeMode = ResizeMode.CanResize
             };
 
-            // Position at bottom-center of the screen
-            window.Left = (SystemParameters.WorkArea.Width - windowWidth) / 2;
-            window.Top = SystemParameters.WorkArea.Bottom - windowHeight - 12;
+            // Restore position or default to bottom-center
+            if (Preferences.SavedX >= 0 && Preferences.SavedY >= 0)
+            {
+                window.Left = Preferences.SavedX;
+                window.Top = Preferences.SavedY;
+            }
+            else
+            {
+                window.Left = (screenWidth - windowWidth) / 2;
+                window.Top = SystemParameters.WorkArea.Bottom - windowHeight - 12;
+            }
+
+            // Save geometry on move or resize
+            window.LocationChanged += (s, e) => {
+                Preferences.SavedX = window.Left;
+                Preferences.SavedY = window.Top;
+                AppSettingsManager.Save();
+            };
+            window.SizeChanged += (s, e) => {
+                Preferences.SavedWidth = window.ActualWidth;
+                Preferences.SavedHeight = window.ActualHeight;
+                AppSettingsManager.Save();
+            };
 
             // Prevent maximizing
             window.StateChanged += (s, e) => {
@@ -221,10 +242,20 @@ namespace LiveTranscriptionApp
                 Content = "Filter Profanity", 
                 Foreground = Brushes.White,
                 IsChecked = Preferences.FilterProfanity,
-                Margin = new Thickness(0, 0, 0, 15)
+                Margin = new Thickness(0, 0, 0, 10)
             };
             profanityCheck.Checked += (s, e) => Preferences.FilterProfanity = true;
             profanityCheck.Unchecked += (s, e) => Preferences.FilterProfanity = false;
+
+            var audioTagsCheck = new CheckBox 
+            { 
+                Content = "Show Audio Tags (e.g. [music])", 
+                Foreground = Brushes.White,
+                IsChecked = Preferences.ShowAudioTags,
+                Margin = new Thickness(0, 0, 0, 15)
+            };
+            audioTagsCheck.Checked += (s, e) => Preferences.ShowAudioTags = true;
+            audioTagsCheck.Unchecked += (s, e) => Preferences.ShowAudioTags = false;
 
             var styleLabel = new TextBlock 
             { 
@@ -242,6 +273,7 @@ namespace LiveTranscriptionApp
 
             settingsStack.Children.Add(micCheck);
             settingsStack.Children.Add(profanityCheck);
+            settingsStack.Children.Add(audioTagsCheck);
 
             var posLabel = new TextBlock { Text = "Window Position", Foreground = Brushes.Gray, Margin = new Thickness(0, 0, 0, 5) };
             var posCombo = new ComboBox { Width = 180, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 15) };
@@ -363,9 +395,20 @@ namespace LiveTranscriptionApp
                 settingsPopup.IsOpen = true;
             };
 
+            TranscriptionService? globalService = null;
+
             closeButton.MouseEnter += (s, e) => { closeButton.Background = Brushes.Red; closeButton.Foreground = Brushes.White; };
             closeButton.MouseLeave += (s, e) => { closeButton.Background = Brushes.Transparent; closeButton.Foreground = Brushes.Gray; };
-            closeButton.Click += (s, e) => Application.Current.Shutdown();
+            closeButton.Click += async (s, e) => 
+            {
+                if (globalService != null)
+                {
+                    line1Block.Text = "Shutting down safely...";
+                    line2Block.Text = "";
+                    await globalService.DisposeAsync();
+                }
+                Application.Current.Shutdown();
+            };
 
             buttonPanel.Children.Add(settingsButton);
             buttonPanel.Children.Add(closeButton);
@@ -380,12 +423,10 @@ namespace LiveTranscriptionApp
             // Initialize transcription after window is loaded
             window.Loaded += async (s, e) =>
             {
-                applyPosition();
-
                 try
                 {
                     line2Block.Text = "Downloading Whisper Model...";
-                    var modelPath = await ModelDownloader.EnsureModelExists("tiny.en");
+                    var modelPath = await ModelDownloader.EnsureModelExists("tiny");
                     line1Block.Text = "";
                     line2Block.Text = "Initializing...";
 
@@ -425,6 +466,8 @@ namespace LiveTranscriptionApp
                         }
                     );
 
+                    globalService = service;
+
                     await service.InitializeAsync(modelPath);
                     line1Block.Text = "Listening...";
                     line2Block.Text = "";
@@ -436,7 +479,7 @@ namespace LiveTranscriptionApp
                     if (ex.InnerException != null)
                         errorMessage += $"\nInner: {ex.InnerException.Message}";
 
-                    var diagnosticModelName = "tiny.en";
+                    var diagnosticModelName = "tiny";
                     var modelPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"{diagnosticModelName}.bin");
                     errorMessage += File.Exists(modelPath)
                         ? $"\nModel: {modelPath} ({new FileInfo(modelPath).Length} bytes)"

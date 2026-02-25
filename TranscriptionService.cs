@@ -13,7 +13,7 @@ namespace LiveTranscriptionApp
     /// Consumers (e.g. Program.cs) still use the same constructor signature
     /// as before — no breaking change to existing UI code.
     /// </summary>
-    public class TranscriptionService
+    public class TranscriptionService : IAsyncDisposable
     {
         // ── Layers ─────────────────────────────────────────────────────────────
         private readonly GStreamerSource _gstreamer  = new();
@@ -64,6 +64,15 @@ namespace LiveTranscriptionApp
         {
             _segmenter?.Stop();
             _gstreamer.Stop();
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            Stop();
+            _segmenter?.Dispose();
+            _gstreamer.Dispose();
+            _audio.Dispose();
+            await _whisper.DisposeAsync();
         }
     }
 }

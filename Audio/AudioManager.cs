@@ -13,7 +13,7 @@ namespace LiveTranscriptionApp.Audio
     ///   eliminating the "sliding window grows to 3 s and stays maxed" slowdown.
     /// - Tracks the timestamp of the last voice activity
     /// </summary>
-    public class AudioManager
+    public class AudioManager : IDisposable
     {
         // ── Constants ─────────────────────────────────────────────────────────
         // 16 kHz × 2 bytes per sample = 32 000 bytes per second
@@ -108,20 +108,13 @@ namespace LiveTranscriptionApp.Audio
             }
         }
 
-        /// <summary>Flatten the rolling session window into a contiguous byte array for Whisper.</summary>
-        public byte[] GetSessionSnapshot()
+        /// <summary>Return a snapshot of the current continuous session chunks for Whisper.</summary>
+        public IReadOnlyList<byte[]> GetSessionSnapshot()
         {
             lock (_bufferLock)
             {
-                // Concatenate all chunks in order — each chunk is fixed-size so this is O(n) chunks
-                var result = new byte[_sessionQueue.Count * ChunkSize];
-                int offset = 0;
-                foreach (var chunk in _sessionQueue)
-                {
-                    Buffer.BlockCopy(chunk, 0, result, offset, chunk.Length);
-                    offset += chunk.Length;
-                }
-                return result;
+                // Returns a shallow copy of the chunk references to prevent LOH allocations
+                return _sessionQueue.ToArray();
             }
         }
 
@@ -136,12 +129,18 @@ namespace LiveTranscriptionApp.Audio
             lock (_bufferLock) { _sessionQueue.Clear(); }
         }
 
+        public void Dispose()
+        {
+            _signal.Dispose();
+        }
+
         // ── Thin SemaphoreSlim wrapper so callers don't depend on Threading directly
-        private class SemaphoreSlimWrapper
+        private class SemaphoreSlimWrapper : IDisposable
         {
             private readonly System.Threading.SemaphoreSlim _sem = new(0);
             public void Release() => _sem.Release();
             public System.Threading.Tasks.Task WaitAsync() => _sem.WaitAsync();
+            public void Dispose() => _sem.Dispose();
         }
     }
 }

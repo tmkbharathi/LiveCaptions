@@ -11,9 +11,9 @@ namespace LiveTranscriptionApp.Transcription
         Task InitializeAsync(string modelPath);
 
         /// <summary>
-        /// Transcribe raw 16kHz Mono S16LE PCM bytes.
+        /// Transcribe a sequence of raw 16kHz Mono S16LE PCM chunks.
         /// Returns the recognized text, or empty string if nothing was detected.
         /// </summary>
-        Task<string> TranscribeAsync(byte[] pcmBytes);
+        Task<string> TranscribeAsync(System.Collections.Generic.IReadOnlyList<byte[]> pcmChunks);
     }
 }
