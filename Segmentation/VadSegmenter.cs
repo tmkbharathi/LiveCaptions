@@ -69,7 +69,12 @@ namespace LiveTranscriptionApp.Segmentation
 
         public void Stop()
         {
-            _cts?.Cancel();
+            try
+            {
+                _cts?.Cancel();
+            }
+            catch (ObjectDisposedException) { /* Already disposed by another thread, safe to ignore */ }
+
             _silenceTimer?.Change(Timeout.Infinite, Timeout.Infinite);
         }
 
