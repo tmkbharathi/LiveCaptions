@@ -147,6 +147,18 @@ namespace LiveTranscriptionApp
             // Only the final block has loading text initially
             lineBlocks[1].Text = "Loading...";
 
+            // Shared Application State
+            TranscriptionService? activeService = null;
+            Output.SubtitleOutputManager? outputManager = null;
+            
+            Func<int> calculateChars = () => 
+            {
+                double scaleFactor = lineBlocks[0].FontSize / 20.0;
+                // Subtract 100px to account for window padding (20px each side) + button column (~60px)
+                // Divisor 9.5 ensures better width utilization
+                return (int)(((window.ActualWidth - 100) / 9.5) / scaleFactor);
+            };
+
             // Audio Indicator Dot
             var audioIndicator = new Border
             {
@@ -160,22 +172,32 @@ namespace LiveTranscriptionApp
                 Opacity = 0 // Hidden by default until audio is detected
             };
 
+            // Layout structure: 2 columns (Captions on Left, Buttons on Right)
+            var layoutGrid = new Grid();
+            layoutGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // Col 0: Captions
+            layoutGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Col 1: Tools
+
             // Content layout: [Text]
             var contentGrid = new Grid();
             contentGrid.Children.Add(textPanel);
+            
+            Grid.SetColumn(contentGrid, 0);
+            layoutGrid.Children.Add(contentGrid);
 
-            background.Child = contentGrid;
+            background.Child = layoutGrid;
             rootGrid.Children.Add(background);
             rootGrid.Children.Add(audioIndicator);
 
-            // Settings ⚙ and Close ✕ buttons — top right
+            // Settings ⚙ and Close ✕ buttons — placed in right column
             var buttonPanel = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 8, 10, 0)
+                Margin = new Thickness(5, 0, 0, 0) // Spacing from text
             };
+            Grid.SetColumn(buttonPanel, 1);
+            layoutGrid.Children.Add(buttonPanel);
 
             var settingsButton = new Button
             {
@@ -355,7 +377,7 @@ namespace LiveTranscriptionApp
                 {
                     lineBlocks[i].Foreground = Brushes.White;
                     lineBlocks[i].FontSize = 20;
-                    lineBlocks[i].MinHeight = lineBlocks[i].FontSize * 1.5; // Prevent descender cropping
+                    lineBlocks[i].MinHeight = lineBlocks[i].FontSize * 1.7; // Extra clearance for descenders (g, y)
                     System.Windows.Documents.Typography.SetCapitals(lineBlocks[i], FontCapitals.Normal);
                 }
                 lineBlocks[0].Foreground = new SolidColorBrush(Color.FromArgb(180, 210, 210, 210));
@@ -373,7 +395,7 @@ namespace LiveTranscriptionApp
                         for (int i = 0; i < 10; i++) 
                         {
                             lineBlocks[i].FontSize = 38;
-                            lineBlocks[i].MinHeight = lineBlocks[i].FontSize * 1.5;
+                            lineBlocks[i].MinHeight = lineBlocks[i].FontSize * 1.7;
                         }
                         break;
                     case CaptionStyle.YellowOnBlue:
@@ -385,8 +407,16 @@ namespace LiveTranscriptionApp
                 }
 
                 // Recalculate wrapping instantly anytime font size changes
-                // Show at least 2 lines + 20px padding
-                window.MinHeight = (lineBlocks[0].MinHeight * 2) + 20 + (lineBlocks[0].Margin.Bottom * 2);
+                // Show at least 2 lines + 45px padding (safety buffer for descenders)
+                window.MinHeight = (lineBlocks[0].MinHeight * 2) + 45 + (lineBlocks[0].Margin.Bottom * 2);
+
+                if (outputManager != null)
+                {
+                    outputManager.CharsPerLine = calculateChars();
+                    double rowHeight = lineBlocks[0].MinHeight + lineBlocks[0].Margin.Bottom;
+                    // ActualHeight - 30 accounts for window vertical padding + safety buffer.
+                    outputManager.VisibleLines = Math.Max(2, Math.Min(10, (int)((window.ActualHeight - 30) / rowHeight)));
+                }
             };
 
             styleCombo.SelectionChanged += (s, e) => 
@@ -401,24 +431,23 @@ namespace LiveTranscriptionApp
                 settingsPopup.IsOpen = true;
             };
 
-            TranscriptionService? globalService = null;
 
             closeButton.MouseEnter += (s, e) => { closeButton.Background = Brushes.Red; closeButton.Foreground = Brushes.White; };
             closeButton.MouseLeave += (s, e) => { closeButton.Background = Brushes.Transparent; closeButton.Foreground = Brushes.Gray; };
             closeButton.Click += async (s, e) => 
             {
-                if (globalService != null)
+                if (activeService != null)
                 {
                     lineBlocks[0].Text = "Shutting down safely...";
                     lineBlocks[1].Text = "";
-                    await globalService.DisposeAsync();
+                    await activeService.DisposeAsync();
                 }
                 Application.Current.Shutdown();
             };
 
             buttonPanel.Children.Add(settingsButton);
             buttonPanel.Children.Add(closeButton);
-            rootGrid.Children.Add(buttonPanel);
+            // buttonPanel is already added to layoutGrid Row 0
 
             // Drag to move
             window.MouseLeftButtonDown += (s, e) => {
@@ -444,25 +473,19 @@ namespace LiveTranscriptionApp
                         dispatchers[index] = text => lineBlocks[index].Text = text;
                     }
 
-                    var outputManager = new Output.SubtitleOutputManager(dispatchers);
-                    
-                    Func<int> calculateChars = () => 
-                    {
-                        double scaleFactor = lineBlocks[0].FontSize / 20.0;
-                        return (int)((window.ActualWidth / 11.5) / scaleFactor);
-                    };
-
+                    outputManager = new Output.SubtitleOutputManager(dispatchers);
                     outputManager.CharsPerLine = calculateChars();
                     double initialRowHeight = lineBlocks[0].MinHeight + lineBlocks[0].Margin.Bottom;
-                    // ActualHeight - 20 accounts for the window Border Padding of Top 10 + Bottom 10.
-                    outputManager.VisibleLines = Math.Max(2, Math.Min(10, (int)((window.ActualHeight - 20) / initialRowHeight)));
+                    // ActualHeight - 30 accounts for window vertical padding + safety buffer.
+                    outputManager.VisibleLines = Math.Max(2, Math.Min(10, (int)((window.ActualHeight - 30) / initialRowHeight)));
 
                     // Dynamically recalculate char limit when the user resizes the window OR changes the font size
                     window.SizeChanged += (sender, args) => {
+                        if (outputManager == null) return;
                         outputManager.CharsPerLine = calculateChars();
                         // Dynamically reveal TextBlocks if window height increases to fit them
                         double rowHeight = lineBlocks[0].MinHeight + lineBlocks[0].Margin.Bottom;
-                        int maxVisibleLines = Math.Max(2, Math.Min(10, (int)((window.ActualHeight - 20) / rowHeight)));
+                        int maxVisibleLines = Math.Max(2, Math.Min(10, (int)((window.ActualHeight - 30) / rowHeight)));
                         outputManager.VisibleLines = maxVisibleLines;
                         
                         for (int i = 0; i < 10; i++)
@@ -490,7 +513,7 @@ namespace LiveTranscriptionApp
                         }
                     );
 
-                    globalService = service;
+                    activeService = service;
 
                     await service.InitializeAsync(modelPath);
                     lineBlocks[0].Text = "Listening...";
