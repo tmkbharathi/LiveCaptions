@@ -18,9 +18,16 @@ namespace LiveTranscriptionApp.Transcription
 
         public Task InitializeAsync(string modelPath)
         {
+            string langCode = Preferences.SpokenLanguage switch
+            {
+                TranscriptionLanguage.English => "en",
+                TranscriptionLanguage.Korean => "ko",
+                _ => "auto"
+            };
+
             _factory   = WhisperFactory.FromPath(modelPath);
             _processor = _factory.CreateBuilder()
-                .WithLanguage("auto")
+                .WithLanguage(langCode)
                 .WithThreads(Environment.ProcessorCount) // Maximize CPU core usage
                 .Build();
             return Task.CompletedTask;
@@ -41,9 +48,17 @@ namespace LiveTranscriptionApp.Transcription
                 var resultBuilder = new System.Text.StringBuilder();
                 await foreach (var seg in _processor.ProcessAsync(wavStream))
                 {
-                    // Strictly enforce English-only. If someone speaks Spanish, 
-                    // this prevents the engine from hallucinating English translations.
-                    if (seg.Language == "en")
+                    // To prevent hallucinations, we enforce the language manually.
+                    // If Auto-Detect is enabled, we accept anything.
+                    // Otherwise, we only accept text that Whisper confidently identifies as the requested language.
+                    string targetLang = Preferences.SpokenLanguage switch
+                    {
+                        TranscriptionLanguage.English => "en",
+                        TranscriptionLanguage.Korean => "ko",
+                        _ => "auto"
+                    };
+
+                    if (targetLang == "auto" || seg.Language == targetLang)
                     {
                         resultBuilder.Append(seg.Text);
                     }

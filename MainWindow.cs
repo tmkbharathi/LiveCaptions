@@ -265,13 +265,25 @@ namespace LiveTranscriptionApp
                 Foreground = Brushes.Gray,
                 Margin = new Thickness(0, 0, 0, 5) 
             };
-            var styleCombo = new ComboBox { Width = 180, HorizontalAlignment = HorizontalAlignment.Left };
+            var styleCombo = new ComboBox { Width = 180, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 15) };
             styleCombo.Items.Add("Default");
             styleCombo.Items.Add("White on Black");
             styleCombo.Items.Add("Small Caps");
             styleCombo.Items.Add("Large Text");
             styleCombo.Items.Add("Yellow on Blue");
             styleCombo.SelectedIndex = (int)Preferences.CurrentStyle;
+
+            var langLabel = new TextBlock 
+            { 
+                Text = "Spoken Language", 
+                Foreground = Brushes.Gray,
+                Margin = new Thickness(0, 0, 0, 5) 
+            };
+            var langCombo = new ComboBox { Width = 180, HorizontalAlignment = HorizontalAlignment.Left };
+            langCombo.Items.Add("Auto-Detect");
+            langCombo.Items.Add("English");
+            langCombo.Items.Add("Korean");
+            langCombo.SelectedIndex = (int)Preferences.SpokenLanguage;
 
             settingsStack.Children.Add(micCheck);
             settingsStack.Children.Add(profanityCheck);
@@ -293,6 +305,9 @@ namespace LiveTranscriptionApp
             settingsStack.Children.Add(posCombo);
             settingsStack.Children.Add(styleLabel);
             settingsStack.Children.Add(styleCombo);
+            settingsStack.Children.Add(langLabel);
+            settingsStack.Children.Add(langCombo);
+
             popupBorder.Child = settingsStack;
             settingsPopup.Child = popupBorder;
 
@@ -402,6 +417,44 @@ namespace LiveTranscriptionApp
             {
                 Preferences.CurrentStyle = (CaptionStyle)styleCombo.SelectedIndex;
                 applyStyles();
+            };
+
+            // Restart service if language changes
+            langCombo.SelectionChanged += async (s, e) =>
+            {
+                if (Preferences.SpokenLanguage == (TranscriptionLanguage)langCombo.SelectedIndex) return;
+                
+                Preferences.SpokenLanguage = (TranscriptionLanguage)langCombo.SelectedIndex;
+                AppSettingsManager.Save();
+
+                if (activeService != null)
+                {
+                    lineBlocks[0].Text = "Changing language...";
+                    lineBlocks[1].Text = "";
+                    await activeService.DisposeAsync();
+
+                    // Re-initialize service
+                    var modelPath = await ModelDownloader.EnsureModelExists("tiny");
+                    
+                    var service = new TranscriptionService(
+                        (text, isFinal) =>
+                        {
+                            this.Dispatcher.Invoke(() => outputManager?.OnText(text, isFinal));
+                        },
+                        level =>
+                        {
+                            this.Dispatcher.InvokeAsync(() =>
+                            {
+                                audioIndicator.Opacity = level > 0.01 ? 1.0 : 0.0;
+                            });
+                        }
+                    );
+                    activeService = service;
+                    await service.InitializeAsync(modelPath);
+                    lineBlocks[0].Text = "Listening...";
+                    lineBlocks[1].Text = "";
+                    service.Start();
+                }
             };
 
             // Toggle Popup onClick

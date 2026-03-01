@@ -27,6 +27,7 @@ namespace LiveTranscriptionApp
                     Preferences.ShowAudioTags,
                     Preferences.CurrentStyle,
                     Preferences.CurrentPosition,
+                    Preferences.SpokenLanguage,
                     Preferences.SavedWidth,
                     Preferences.SavedHeight,
                     Preferences.SavedX,
@@ -57,6 +58,7 @@ namespace LiveTranscriptionApp
                     if (root.TryGetProperty(nameof(Preferences.ShowAudioTags), out el)) Preferences.ShowAudioTags = el.GetBoolean();
                     if (root.TryGetProperty(nameof(Preferences.CurrentStyle), out el)) Preferences.CurrentStyle = (CaptionStyle)el.GetInt32();
                     if (root.TryGetProperty(nameof(Preferences.CurrentPosition), out el)) Preferences.CurrentPosition = (WindowPosition)el.GetInt32();
+                    if (root.TryGetProperty(nameof(Preferences.SpokenLanguage), out el)) Preferences.SpokenLanguage = (TranscriptionLanguage)el.GetInt32();
                     if (root.TryGetProperty(nameof(Preferences.SavedWidth), out el)) Preferences.SavedWidth = el.GetDouble();
                     if (root.TryGetProperty(nameof(Preferences.SavedHeight), out el)) Preferences.SavedHeight = el.GetDouble();
                     if (root.TryGetProperty(nameof(Preferences.SavedX), out el)) Preferences.SavedX = el.GetDouble();

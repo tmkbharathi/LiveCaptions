@@ -7,6 +7,7 @@ namespace LiveTranscriptionApp
         public static bool ShowAudioTags { get; set; } = false;
         public static CaptionStyle CurrentStyle { get; set; } = CaptionStyle.WhiteOnBlack;
         public static WindowPosition CurrentPosition { get; set; } = WindowPosition.Bottom;
+        public static TranscriptionLanguage SpokenLanguage { get; set; } = TranscriptionLanguage.Auto;
 
         
         // Window geometry
@@ -35,5 +36,12 @@ namespace LiveTranscriptionApp
         SmallCaps,
         LargeText,
         YellowOnBlue
+    }
+
+    public enum TranscriptionLanguage
+    {
+        Auto,
+        English,
+        Korean
     }
 }
