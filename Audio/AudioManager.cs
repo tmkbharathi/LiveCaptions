@@ -31,7 +31,8 @@ namespace LiveTranscriptionApp.Audio
         private const float SilenceThreshold = 0.05f;
 
         // ── Internal state ─────────────────────────────────────────────────────
-        private readonly List<byte>             _audioBuffer   = new();
+        private byte[]                          _receiveBuffer = new byte[ChunkSize * 10];
+        private int                             _receiveBufferLength = 0;
         private readonly Queue<byte[]>          _sessionQueue  = new(); // rolling window
         private readonly object                 _bufferLock    = new();
         private readonly ConcurrentQueue<byte[]> _chunkQueue   = new();
@@ -58,11 +59,27 @@ namespace LiveTranscriptionApp.Audio
         {
             lock (_bufferLock)
             {
-                _audioBuffer.AddRange(pcmData);
-                while (_audioBuffer.Count >= ChunkSize)
+                // Ensure receive buffer has enough capacity
+                if (_receiveBufferLength + pcmData.Length > _receiveBuffer.Length)
                 {
-                    var chunk = _audioBuffer.GetRange(0, ChunkSize).ToArray();
-                    _audioBuffer.RemoveRange(0, ChunkSize);
+                    Array.Resize(ref _receiveBuffer, Math.Max(_receiveBuffer.Length * 2, _receiveBufferLength + pcmData.Length));
+                }
+
+                Buffer.BlockCopy(pcmData, 0, _receiveBuffer, _receiveBufferLength, pcmData.Length);
+                _receiveBufferLength += pcmData.Length;
+
+                while (_receiveBufferLength >= ChunkSize)
+                {
+                    var chunk = new byte[ChunkSize];
+                    Buffer.BlockCopy(_receiveBuffer, 0, chunk, 0, ChunkSize);
+
+                    int remaining = _receiveBufferLength - ChunkSize;
+                    if (remaining > 0)
+                    {
+                        Buffer.BlockCopy(_receiveBuffer, ChunkSize, _receiveBuffer, 0, remaining);
+                    }
+                    _receiveBufferLength = remaining;
+
                     _chunkQueue.Enqueue(chunk);
                     _signal.Release();
                 }

@@ -15,6 +15,13 @@ namespace LiveTranscriptionApp.Output
     /// </summary>
     public class SubtitleOutputManager : IOutputManager
     {
+        // ── Pre-Compiled Regex ─────────────────────────────────────────────────
+        private static readonly System.Text.RegularExpressions.Regex TagRegexBracket = new(@"\[.*?\]", System.Text.RegularExpressions.RegexOptions.Compiled);
+        private static readonly System.Text.RegularExpressions.Regex TagRegexParen = new(@"\(.*?\)", System.Text.RegularExpressions.RegexOptions.Compiled);
+        private static readonly System.Text.RegularExpressions.Regex ProfanityRegex = new(
+            @"\b(fuck|shit|bitch|asshole|damn|cunt|fucking|bullshit)\b",
+            System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
         // ── Dependencies ───────────────────────────────────────────────────────
         private readonly Action<string>[] _setLines;
 
@@ -51,8 +58,8 @@ namespace LiveTranscriptionApp.Output
             if (!Preferences.ShowAudioTags)
             {
                 // Strip bracketed audio events like [music], (explosion), etc.
-                text = System.Text.RegularExpressions.Regex.Replace(text, @"\[.*?\]", "");
-                text = System.Text.RegularExpressions.Regex.Replace(text, @"\(.*?\)", "");
+                text = TagRegexBracket.Replace(text, "");
+                text = TagRegexParen.Replace(text, "");
                 text = text.Replace("♪", "");
             }
             
@@ -69,16 +76,7 @@ namespace LiveTranscriptionApp.Output
             // Run Profanity Filter
             if (Preferences.FilterProfanity)
             {
-                var badWords = new[] { "fuck", "shit", "bitch", "asshole", "damn", "cunt", "fucking", "bullshit" };
-                foreach (var word in badWords)
-                {
-                    // Case-insensitive replace with asterisks
-                    text = System.Text.RegularExpressions.Regex.Replace(
-                        text, 
-                        $@"\b{word}\b", 
-                        "***", 
-                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                }
+                text = ProfanityRegex.Replace(text, "***");
             }
 
             // Optional translation
@@ -120,66 +118,40 @@ namespace LiveTranscriptionApp.Output
             if (string.IsNullOrWhiteSpace(history)) return addition;
             if (string.IsNullOrWhiteSpace(addition)) return history;
 
-            var hWords = history.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            var aWords = addition.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-
-            // Find the most recent, reliable overlap anchor between the history and the new addition.
-            // We search for an anchor of up to 5 words, from end to beginning in history.
-            int maxAnchor = Math.Min(aWords.Length, Math.Min(hWords.Length, 5));
-            int minAnchor = 2; // Require at least 2 words to anchor
-
-            for (int anchorLen = maxAnchor; anchorLen >= minAnchor; anchorLen--)
-            {
-                // We typically only need to check the last 100 words of history for the overlap
-                int searchStart = Math.Max(0, hWords.Length - 100);
-                for (int i = hWords.Length - anchorLen; i >= searchStart; i--)
-                {
-                    bool match = true;
-                    for (int j = 0; j < anchorLen; j++)
-                    {
-                        // Clean punctuation for comparison
-                        string hWord = hWords[i + j].TrimEnd('.', ',', '?', '!', '\"', '\'').TrimStart('\"', '\'');
-                        string aWord = aWords[j].TrimEnd('.', ',', '?', '!', '\"', '\'').TrimStart('\"', '\'');
-                        if (!string.Equals(hWord, aWord, StringComparison.OrdinalIgnoreCase))
-                        {
-                            match = false;
-                            break;
-                        }
-                    }
-
-                    if (match)
-                    {
-                        // Anchor found! 'addition' starts at index 'i' in history.
-                        // We keep everything in history BEFORE 'i', and then append 'addition'.
-                        string prefix = string.Join(" ", System.Linq.Enumerable.Take(hWords, i));
-                        return string.IsNullOrWhiteSpace(prefix) ? addition : prefix + " " + addition;
-                    }
-                }
-            }
-
-            // Fallback: strict suffix-prefix match for very short overlaps (1 word)
             int bestOverlap = 0;
-            int maxExactOverlap = Math.Min(hWords.Length, aWords.Length);
-            for (int overlap = 1; overlap <= maxExactOverlap; overlap++)
+
+            // Find overlapping words without allocating arrays
+            for (int i = 1; i <= Math.Min(history.Length, addition.Length); i++)
             {
-                bool match = true;
-                for (int i = 0; i < overlap; i++)
+                // To safely check word boundaries we only check overlaps where a word boundary exists
+                // Addition prefix length i
+                if (i < addition.Length && !char.IsWhiteSpace(addition[i]) && i != addition.Length) continue;
+
+                // history suffix length i
+                if (history.Length - i - 1 >= 0 && !char.IsWhiteSpace(history[history.Length - i - 1])) continue;
+
+                var hSub = history.AsSpan(history.Length - i);
+                var aSub = addition.AsSpan(0, i);
+
+                // Ignore punctuation mismatches ( Whisper will often change punctuation rapidly between inferences )
+                int hTrimStart = 0, hTrimEnd = hSub.Length;
+                while (hTrimStart < hSub.Length && char.IsPunctuation(hSub[hTrimStart])) hTrimStart++;
+                while (hTrimEnd > hTrimStart && char.IsPunctuation(hSub[hTrimEnd - 1])) hTrimEnd--;
+
+                int aTrimStart = 0, aTrimEnd = aSub.Length;
+                while (aTrimStart < aSub.Length && char.IsPunctuation(aSub[aTrimStart])) aTrimStart++;
+                while (aTrimEnd > aTrimStart && char.IsPunctuation(aSub[aTrimEnd - 1])) aTrimEnd--;
+
+                if (hSub.Slice(hTrimStart, hTrimEnd - hTrimStart).Equals(aSub.Slice(aTrimStart, aTrimEnd - aTrimStart), StringComparison.OrdinalIgnoreCase))
                 {
-                    string hWord = hWords[hWords.Length - overlap + i].TrimEnd('.', ',', '?', '!', '\"', '\'').TrimStart('\"', '\'');
-                    string aWord = aWords[i].TrimEnd('.', ',', '?', '!', '\"', '\'').TrimStart('\"', '\'');
-                    if (!string.Equals(hWord, aWord, StringComparison.OrdinalIgnoreCase))
-                    {
-                        match = false;
-                        break;
-                    }
+                    bestOverlap = i;
                 }
-                if (match) bestOverlap = overlap;
             }
 
             if (bestOverlap > 0)
             {
-                string newAddition = string.Join(" ", System.Linq.Enumerable.Skip(aWords, bestOverlap));
-                return (history + " " + newAddition).Trim();
+                string newAddition = addition.Substring(bestOverlap).TrimStart();
+                return (history + (newAddition.Length > 0 ? " " : "") + newAddition).Trim();
             }
 
             // No overlap found, just concatenate
@@ -206,23 +178,29 @@ namespace LiveTranscriptionApp.Output
             var lines = new System.Collections.Generic.List<string>();
             if (string.IsNullOrWhiteSpace(textToRender)) return lines;
 
-            string currentLine = "";
             string[] words = textToRender.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 0) return lines;
 
-            foreach (var word in words)
+            var sb = new System.Text.StringBuilder(CharsPerLine);
+            sb.Append(words[0]);
+
+            for (int i = 1; i < words.Length; i++)
             {
-                bool fits = currentLine.Length == 0 ? word.Length <= CharsPerLine : (currentLine.Length + 1 + word.Length) <= CharsPerLine;
-                if (fits)
+                if (sb.Length + 1 + words[i].Length <= CharsPerLine)
                 {
-                    currentLine = currentLine.Length == 0 ? word : currentLine + " " + word;
+                    sb.Append(' ').Append(words[i]);
                 }
                 else
                 {
-                    lines.Add(currentLine);
-                    currentLine = word;
+                    lines.Add(sb.ToString());
+                    sb.Clear();
+                    sb.Append(words[i]);
                 }
             }
-            if (currentLine.Length > 0) lines.Add(currentLine);
+            if (sb.Length > 0)
+            {
+                lines.Add(sb.ToString());
+            }
             
             return lines;
         }
@@ -241,15 +219,6 @@ namespace LiveTranscriptionApp.Output
                 return;
             }
 
-            // --- DEBUG: Save to desktop ---
-            try 
-            {
-                string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                string filePath = System.IO.Path.Combine(desktopPath, "debug_subtitles.txt");
-                System.IO.File.AppendAllText(filePath, textToRender + Environment.NewLine);
-            }
-            catch { /* Ignore debug write errors */ }
-            // ------------------------------
 
 
             var lines = GetLines(textToRender);

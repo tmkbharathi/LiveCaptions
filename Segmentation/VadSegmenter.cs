@@ -17,6 +17,9 @@ namespace LiveTranscriptionApp.Segmentation
     /// </summary>
     public class VadSegmenter : ISentenceSegmenter, IDisposable
     {
+        private static readonly System.Text.RegularExpressions.Regex TagRegexBracket = new(@"\[.*?\]", System.Text.RegularExpressions.RegexOptions.Compiled);
+        private static readonly System.Text.RegularExpressions.Regex TagRegexParen = new(@"\(.*?\)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
         public event Action<string, bool>? OnSegment;
 
         private readonly AudioManager         _audio;
@@ -127,8 +130,8 @@ namespace LiveTranscriptionApp.Segmentation
                 string text  = await _whisper.TranscribeAsync(snapshot);
                 _lastInferenceTime = DateTime.UtcNow;
                 // Check if the output consists entirely of non-speech tags
-                string stripped = System.Text.RegularExpressions.Regex.Replace(text, @"\[.*?\]", "");
-                stripped = System.Text.RegularExpressions.Regex.Replace(stripped, @"\(.*?\)", "");
+                string stripped = TagRegexBracket.Replace(text, "");
+                stripped = TagRegexParen.Replace(stripped, "");
                 stripped = stripped.Replace("♪", "").Trim();
 
                 bool isPureTag = (stripped.Length < 2 && text.Trim().Length >= 2);

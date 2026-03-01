@@ -38,17 +38,17 @@ namespace LiveTranscriptionApp.Transcription
             try
             {
                 using var wavStream = new ChunkedWavStream(pcmChunks);
-                string result = "";
+                var resultBuilder = new System.Text.StringBuilder();
                 await foreach (var seg in _processor.ProcessAsync(wavStream))
                 {
                     // Strictly enforce English-only. If someone speaks Spanish, 
                     // this prevents the engine from hallucinating English translations.
                     if (seg.Language == "en")
                     {
-                        result += seg.Text;
+                        resultBuilder.Append(seg.Text);
                     }
                 }
-                return result.Trim();
+                return resultBuilder.ToString().Trim();
             }
             finally
             {
