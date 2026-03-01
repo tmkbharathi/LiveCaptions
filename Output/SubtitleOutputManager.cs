@@ -1,4 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
 
 namespace LiveTranscriptionApp.Output
 {
@@ -16,11 +20,11 @@ namespace LiveTranscriptionApp.Output
     public class SubtitleOutputManager : IOutputManager
     {
         // ── Pre-Compiled Regex ─────────────────────────────────────────────────
-        private static readonly System.Text.RegularExpressions.Regex TagRegexBracket = new(@"\[.*?\]", System.Text.RegularExpressions.RegexOptions.Compiled);
-        private static readonly System.Text.RegularExpressions.Regex TagRegexParen = new(@"\(.*?\)", System.Text.RegularExpressions.RegexOptions.Compiled);
-        private static readonly System.Text.RegularExpressions.Regex ProfanityRegex = new(
+        private static readonly Regex TagRegexBracket = new(@"\[.*?\]", RegexOptions.Compiled);
+        private static readonly Regex TagRegexParen = new(@"\(.*?\)", RegexOptions.Compiled);
+        private static readonly Regex ProfanityRegex = new(
             @"\b(fuck|shit|bitch|asshole|damn|cunt|fucking|bullshit)\b",
-            System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         // ── Dependencies ───────────────────────────────────────────────────────
         private readonly Action<string>[] _setLines;
@@ -57,10 +61,10 @@ namespace LiveTranscriptionApp.Output
         {
             if (!Preferences.ShowAudioTags)
             {
-                // Strip bracketed audio events like [music], (explosion), etc.
-                text = TagRegexBracket.Replace(text, "");
-                text = TagRegexParen.Replace(text, "");
-                text = text.Replace("♪", "");
+                // Fast-path checks to avoid regex engine overhead when no tags are present
+                if (text.Contains('[')) text = TagRegexBracket.Replace(text, "");
+                if (text.Contains('(')) text = TagRegexParen.Replace(text, "");
+                if (text.Contains('♪')) text = text.Replace("♪", "");
             }
             
             text = text.Trim();
@@ -70,8 +74,6 @@ namespace LiveTranscriptionApp.Output
                 || text.Contains("Thank you.")
                 || text.Length < 2)
                 return;
-
-            text = text.Trim();
 
             // Run Profanity Filter
             if (Preferences.FilterProfanity)
@@ -96,7 +98,7 @@ namespace LiveTranscriptionApp.Output
                 if (lines.Count > keepLines)
                 {
                     // Keep the last `VisibleLines` full lines to preserve exact word alignment on screen
-                    _committedHistory = string.Join(" ", System.Linq.Enumerable.Skip(lines, lines.Count - keepLines));
+                    _committedHistory = string.Join(" ", lines.Skip(lines.Count - keepLines));
                 }
 
                 ProcessDisplayBlocks(_committedHistory);
@@ -119,19 +121,23 @@ namespace LiveTranscriptionApp.Output
             if (string.IsNullOrWhiteSpace(addition)) return history;
 
             int bestOverlap = 0;
+            int minLen = Math.Min(history.Length, addition.Length);
+
+            ReadOnlySpan<char> hSpan = history.AsSpan();
+            ReadOnlySpan<char> aSpan = addition.AsSpan();
 
             // Find overlapping words without allocating arrays
-            for (int i = 1; i <= Math.Min(history.Length, addition.Length); i++)
+            for (int i = 1; i <= minLen; i++)
             {
                 // To safely check word boundaries we only check overlaps where a word boundary exists
                 // Addition prefix length i
-                if (i < addition.Length && !char.IsWhiteSpace(addition[i]) && i != addition.Length) continue;
+                if (i < aSpan.Length && !char.IsWhiteSpace(aSpan[i])) continue;
 
                 // history suffix length i
-                if (history.Length - i - 1 >= 0 && !char.IsWhiteSpace(history[history.Length - i - 1])) continue;
+                if (hSpan.Length - i - 1 >= 0 && !char.IsWhiteSpace(hSpan[hSpan.Length - i - 1])) continue;
 
-                var hSub = history.AsSpan(history.Length - i);
-                var aSub = addition.AsSpan(0, i);
+                var hSub = hSpan.Slice(hSpan.Length - i);
+                var aSub = aSpan.Slice(0, i);
 
                 // Ignore punctuation mismatches ( Whisper will often change punctuation rapidly between inferences )
                 int hTrimStart = 0, hTrimEnd = hSub.Length;
@@ -151,11 +157,11 @@ namespace LiveTranscriptionApp.Output
             if (bestOverlap > 0)
             {
                 string newAddition = addition.Substring(bestOverlap).TrimStart();
-                return (history + (newAddition.Length > 0 ? " " : "") + newAddition).Trim();
+                return newAddition.Length > 0 ? $"{history} {newAddition}" : history;
             }
 
             // No overlap found, just concatenate
-            return (history + " " + addition).Trim();
+            return $"{history} {addition}";
         }
 
         // ── Block Dispatcher ────────────────────────────────────────
@@ -173,30 +179,52 @@ namespace LiveTranscriptionApp.Output
 
 
 
-        private System.Collections.Generic.List<string> GetLines(string textToRender)
+        private List<string> GetLines(string textToRender)
         {
-            var lines = new System.Collections.Generic.List<string>();
+            var lines = new List<string>();
             if (string.IsNullOrWhiteSpace(textToRender)) return lines;
 
-            string[] words = textToRender.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            if (words.Length == 0) return lines;
+            ReadOnlySpan<char> span = textToRender.AsSpan();
+            var sb = new StringBuilder(CharsPerLine);
 
-            var sb = new System.Text.StringBuilder(CharsPerLine);
-            sb.Append(words[0]);
-
-            for (int i = 1; i < words.Length; i++)
+            int wordStart = -1;
+            for (int i = 0; i <= span.Length; i++)
             {
-                if (sb.Length + 1 + words[i].Length <= CharsPerLine)
+                // Treat end of span or any whitespace as a word boundary
+                bool isBoundary = i == span.Length || char.IsWhiteSpace(span[i]);
+
+                if (isBoundary)
                 {
-                    sb.Append(' ').Append(words[i]);
+                    if (wordStart != -1)
+                    {
+                        var word = span.Slice(wordStart, i - wordStart);
+                        
+                        if (sb.Length > 0)
+                        {
+                            if (sb.Length + 1 + word.Length <= CharsPerLine)
+                            {
+                                sb.Append(' ').Append(word);
+                            }
+                            else
+                            {
+                                lines.Add(sb.ToString());
+                                sb.Clear();
+                                sb.Append(word);
+                            }
+                        }
+                        else
+                        {
+                            sb.Append(word);
+                        }
+                        wordStart = -1;
+                    }
                 }
-                else
+                else if (wordStart == -1)
                 {
-                    lines.Add(sb.ToString());
-                    sb.Clear();
-                    sb.Append(words[i]);
+                    wordStart = i;
                 }
             }
+
             if (sb.Length > 0)
             {
                 lines.Add(sb.ToString());
@@ -214,7 +242,7 @@ namespace LiveTranscriptionApp.Output
             if (string.IsNullOrWhiteSpace(textToRender))
             {
                 string[] emptyLines = new string[_setLines.Length];
-                for(int i=0; i<emptyLines.Length; i++) emptyLines[i] = " ";
+                Array.Fill(emptyLines, " ");
                 Render(emptyLines);
                 return;
             }
@@ -225,7 +253,7 @@ namespace LiveTranscriptionApp.Output
             int maxLines = Math.Min(VisibleLines, _setLines.Length);
 
             string[] displayLines = new string[_setLines.Length];
-            for (int i = 0; i < _setLines.Length; i++) displayLines[i] = "";
+            Array.Fill(displayLines, "");
 
             if (lines.Count <= maxLines)
             {

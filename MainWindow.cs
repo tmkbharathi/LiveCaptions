@@ -229,6 +229,28 @@ namespace LiveTranscriptionApp
 
             var settingsStack = new StackPanel();
 
+            var langLabel = new TextBlock 
+            { 
+                Text = "Spoken Language", 
+                Foreground = Brushes.Gray,
+                Margin = new Thickness(0, 0, 0, 5) 
+            };
+            var langCombo = new ComboBox { Width = 180, HorizontalAlignment = HorizontalAlignment.Left };
+            var autoDetectItem = new ComboBoxItem { Content = "Auto-Detect", IsEnabled = Preferences.IncludeMicrophone };
+            var englishItem = new ComboBoxItem { Content = "English" };
+            var koreanItem = new ComboBoxItem { Content = "Korean" };
+            langCombo.Items.Add(autoDetectItem);
+            langCombo.Items.Add(englishItem);
+            langCombo.Items.Add(koreanItem);
+
+            // If Auto-Detect was saved but Mic is off, fallback to English
+            if (!Preferences.IncludeMicrophone && Preferences.SpokenLanguage == TranscriptionLanguage.Auto)
+            {
+                Preferences.SpokenLanguage = TranscriptionLanguage.English;
+                AppSettingsManager.Save();
+            }
+            langCombo.SelectedIndex = (int)Preferences.SpokenLanguage;
+
             var micCheck = new CheckBox 
             { 
                 Content = "Include Microphone Audio", 
@@ -236,8 +258,18 @@ namespace LiveTranscriptionApp
                 IsChecked = Preferences.IncludeMicrophone,
                 Margin = new Thickness(0, 0, 0, 10)
             };
-            micCheck.Checked += (s, e) => Preferences.IncludeMicrophone = true;
-            micCheck.Unchecked += (s, e) => Preferences.IncludeMicrophone = false;
+            micCheck.Checked += (s, e) => {
+                Preferences.IncludeMicrophone = true;
+                autoDetectItem.IsEnabled = true;
+            };
+            micCheck.Unchecked += (s, e) => {
+                Preferences.IncludeMicrophone = false;
+                autoDetectItem.IsEnabled = false;
+                if (langCombo.SelectedIndex == 0)
+                {
+                    langCombo.SelectedIndex = 1; // Fallback to English
+                }
+            };
 
             var profanityCheck = new CheckBox 
             { 
@@ -272,18 +304,6 @@ namespace LiveTranscriptionApp
             styleCombo.Items.Add("Large Text");
             styleCombo.Items.Add("Yellow on Blue");
             styleCombo.SelectedIndex = (int)Preferences.CurrentStyle;
-
-            var langLabel = new TextBlock 
-            { 
-                Text = "Spoken Language", 
-                Foreground = Brushes.Gray,
-                Margin = new Thickness(0, 0, 0, 5) 
-            };
-            var langCombo = new ComboBox { Width = 180, HorizontalAlignment = HorizontalAlignment.Left };
-            langCombo.Items.Add("Auto-Detect");
-            langCombo.Items.Add("English");
-            langCombo.Items.Add("Korean");
-            langCombo.SelectedIndex = (int)Preferences.SpokenLanguage;
 
             settingsStack.Children.Add(micCheck);
             settingsStack.Children.Add(profanityCheck);
