@@ -16,8 +16,7 @@ namespace LiveTranscriptionApp.Output
     public class SubtitleOutputManager : IOutputManager
     {
         // ── Dependencies ───────────────────────────────────────────────────────
-        private readonly Action<string> _setLine1;
-        private readonly Action<string> _setLine2;
+        private readonly Action<string>[] _setLines;
 
         /// <summary>Optional translation hook. Set before first use.</summary>
         public ITranslator? Translator { get; set; }
@@ -28,18 +27,22 @@ namespace LiveTranscriptionApp.Output
         /// Conservative value for screens ≥ 1366 px wide.
         /// </summary>
         public int CharsPerLine { get; set; } = 72;
+        
+        /// <summary>
+        /// How many lines are currently visible on screen. Determines when to scroll text upwards.
+        /// </summary>
+        public int VisibleLines { get; set; } = 2;
 
         // "Block-level snapping" state
         private string _committedHistory = "";
         private string _frozenLine1      = "";
 
-        // ── Constructor ────────────────────────────────────────────────────────
-        /// <param name="setLine1">Callback to update line 1 in the UI (must be thread-safe / dispatched).</param>
-        /// <param name="setLine2">Callback to update line 2 in the UI.</param>
-        public SubtitleOutputManager(Action<string> setLine1, Action<string> setLine2)
+        /// <param name="setLines">Callback array to update each line block in the UI (up to 10 lines supported).</param>
+        public SubtitleOutputManager(params Action<string>[] setLines)
         {
-            _setLine1 = setLine1;
-            _setLine2 = setLine2;
+            _setLines = setLines;
+            if (_setLines.Length == 0 || _setLines.Length > 10)
+                throw new ArgumentException("SubtitleOutputManager requires between 1 and 10 line dispatchers.");
         }
 
         // ── IOutputManager ─────────────────────────────────────────────────────
@@ -91,10 +94,11 @@ namespace LiveTranscriptionApp.Output
                 // We parse it into lines to ensure we only trim EXACTLY at line boundaries,
                 // so we don't accidentally shift the wrapping of the remaining words!
                 var lines = GetLines(_committedHistory);
-                if (lines.Count > 4)
+                int keepLines = Math.Max(2, VisibleLines);
+                if (lines.Count > keepLines)
                 {
-                    // Keep the last 4 full lines to preserve exact word alignment on screen
-                    _committedHistory = string.Join(" ", System.Linq.Enumerable.Skip(lines, lines.Count - 4));
+                    // Keep the last `VisibleLines` full lines to preserve exact word alignment on screen
+                    _committedHistory = string.Join(" ", System.Linq.Enumerable.Skip(lines, lines.Count - keepLines));
                 }
 
                 ProcessDisplayBlocks(_committedHistory);
@@ -231,7 +235,9 @@ namespace LiveTranscriptionApp.Output
         {
             if (string.IsNullOrWhiteSpace(textToRender))
             {
-                Render(" ", " ");
+                string[] emptyLines = new string[_setLines.Length];
+                for(int i=0; i<emptyLines.Length; i++) emptyLines[i] = " ";
+                Render(emptyLines);
                 return;
             }
 
@@ -247,47 +253,47 @@ namespace LiveTranscriptionApp.Output
 
 
             var lines = GetLines(textToRender);
+            int maxLines = Math.Min(VisibleLines, _setLines.Length);
 
-            string line1 = "";
-            string line2 = "";
+            string[] displayLines = new string[_setLines.Length];
+            for (int i = 0; i < _setLines.Length; i++) displayLines[i] = "";
 
-            if (lines.Count == 1)
+            if (lines.Count <= maxLines)
             {
-                // Single line starts on Top (Line 1) per user request
-                line1 = lines[0];
-                line2 = "";
-            }
-            else if (lines.Count >= 2)
-            {
-                // Push older text up, newer text stays on bottom.
-                // If line1 previously had text, try to avoid wiping it unless absolutely necessary 
-                // due to a severe rollback/re-wrap.
-                string targetLine1 = lines[lines.Count - 2];
-                string targetLine2 = lines[lines.Count - 1];
-
-                // Check if Whisper just corrected a word on the *current* bottom line.
-                // If the top line (line1) is identical to what we showed a fraction of a second ago,
-                // KEEP IT. Don't let layout wrapping erase right-to-left.
-                if (!string.IsNullOrEmpty(_frozenLine1) && targetLine1.StartsWith(_frozenLine1, StringComparison.OrdinalIgnoreCase))
+                // If the text fits in the available layout boxes, just fill them top to bottom
+                for (int i = 0; i < lines.Count; i++)
                 {
-                    line1 = _frozenLine1; // Pin it so it doesn't flutter
+                    displayLines[i] = lines[i];
                 }
-                else
+            }
+            else
+            {
+                // Push older text up, newer text stays on bottom (scrolling effect).
+                int startIdx = lines.Count - maxLines;
+                for (int i = 0; i < maxLines; i++)
                 {
-                    line1 = targetLine1;
+                    displayLines[i] = lines[startIdx + i];
                 }
 
-                line2 = targetLine2;
+                // "Pinning" logic: Prevent the top line from fluttering if Whisper just corrected 
+                // a word on the bottom line. If the new top line starts with the *exact same text* 
+                // as the previous top line, keep the previous top line intact so it doesn't cause a re-wrap shift.
+                if (!string.IsNullOrEmpty(_frozenLine1) && displayLines[0].StartsWith(_frozenLine1, StringComparison.OrdinalIgnoreCase))
+                {
+                    displayLines[0] = _frozenLine1; 
+                }
             }
 
-            _frozenLine1 = line1;
-            Render(line1, line2);
+            _frozenLine1 = displayLines[0];
+            Render(displayLines);
         }
 
-        private void Render(string l1, string l2)
+        private void Render(string[] dLines)
         {
-            _setLine1(string.IsNullOrEmpty(l1) ? " " : l1);
-            _setLine2(string.IsNullOrEmpty(l2) ? " " : l2);
+            for (int i = 0; i < _setLines.Length; i++)
+            {
+                _setLines[i](string.IsNullOrEmpty(dLines[i]) ? " " : dLines[i]);
+            }
         }
     }
 

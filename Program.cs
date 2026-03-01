@@ -49,6 +49,8 @@ namespace LiveTranscriptionApp
                 Width = windowWidth,
                 MinHeight = 80,
                 MinWidth = 540,
+                MaxWidth = 800,
+                MaxHeight = 300,
                 ShowInTaskbar = false,
                 WindowStyle = WindowStyle.None,
                 AllowsTransparency = true,
@@ -117,34 +119,33 @@ namespace LiveTranscriptionApp
                 Padding = new Thickness(20, 10, 20, 10)
             };
 
-            // Two-line subtitle display
-            var line1Block = new TextBlock
-            {
-                Text = " ", // Seed with space to prevent horizontal collapsing
-                Foreground = new SolidColorBrush(Color.FromArgb(180, 210, 210, 210)),
-                FontSize = 20,
-                FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
-                TextWrapping = TextWrapping.NoWrap,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                Margin = new Thickness(0, 0, 0, 2),
-                MinHeight = 26 // Prevent vertical jumping when empty (scaled for 20px)
-            };
-
-            var line2Block = new TextBlock
-            {
-                Text = "Loading...",
-                Foreground = Brushes.White,
-                FontSize = 20,
-                FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
-                TextWrapping = TextWrapping.NoWrap,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                MinHeight = 26 // Prevent vertical jumping when empty
-            };
-
-
+            // Ten-line subtitle display (dynamic)
+            var lineBlocks = new TextBlock[10];
             var textPanel = new StackPanel { Orientation = Orientation.Vertical, VerticalAlignment = VerticalAlignment.Center };
-            textPanel.Children.Add(line1Block);
-            textPanel.Children.Add(line2Block);
+            
+            for (int i = 0; i < 10; i++)
+            {
+                lineBlocks[i] = new TextBlock
+                {
+                    Text = " ", // Seed with space to prevent horizontal collapsing
+                    Foreground = Brushes.White,
+                    FontSize = 20,
+                    FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
+                    TextWrapping = TextWrapping.NoWrap,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    Margin = new Thickness(0, 0, 0, 2),
+                    MinHeight = 26, // Prevent vertical jumping when empty
+                    Visibility = i < 2 ? Visibility.Visible : Visibility.Collapsed // Default to showing 2 lines unless expanded
+                };
+                
+                // First line default style
+                if (i == 0) lineBlocks[i].Foreground = new SolidColorBrush(Color.FromArgb(180, 210, 210, 210));
+                
+                textPanel.Children.Add(lineBlocks[i]);
+            }
+
+            // Only the final block has loading text initially
+            lineBlocks[1].Text = "Loading...";
 
             // Audio Indicator Dot
             var audioIndicator = new Border
@@ -350,37 +351,42 @@ namespace LiveTranscriptionApp
                 // Reset to Default Style
                 background.Background = new SolidColorBrush(Color.FromArgb(255, 30, 30, 30));
                 background.BorderBrush = new SolidColorBrush(Color.FromArgb(100, 255, 255, 255));
-                line1Block.Foreground = new SolidColorBrush(Color.FromArgb(180, 210, 210, 210));
-                line2Block.Foreground = Brushes.White;
-                line1Block.FontSize = 20;
-                line2Block.FontSize = 20;
-                System.Windows.Documents.Typography.SetCapitals(line1Block, FontCapitals.Normal);
-                System.Windows.Documents.Typography.SetCapitals(line2Block, FontCapitals.Normal);
+                for (int i = 0; i < 10; i++)
+                {
+                    lineBlocks[i].Foreground = Brushes.White;
+                    lineBlocks[i].FontSize = 20;
+                    lineBlocks[i].MinHeight = lineBlocks[i].FontSize * 1.5; // Prevent descender cropping
+                    System.Windows.Documents.Typography.SetCapitals(lineBlocks[i], FontCapitals.Normal);
+                }
+                lineBlocks[0].Foreground = new SolidColorBrush(Color.FromArgb(180, 210, 210, 210));
 
                 switch (Preferences.CurrentStyle)
                 {
                     case CaptionStyle.WhiteOnBlack:
                         background.Background = new SolidColorBrush(Color.FromArgb(240, 0, 0, 0)); // Very dark/pure black
-                        line1Block.Foreground = Brushes.White;
+                        lineBlocks[0].Foreground = Brushes.White;
                         break;
                     case CaptionStyle.SmallCaps:
-                        System.Windows.Documents.Typography.SetCapitals(line1Block, FontCapitals.SmallCaps);
-                        System.Windows.Documents.Typography.SetCapitals(line2Block, FontCapitals.SmallCaps);
+                        for (int i = 0; i < 10; i++) System.Windows.Documents.Typography.SetCapitals(lineBlocks[i], FontCapitals.SmallCaps);
                         break;
                     case CaptionStyle.LargeText:
-                        line1Block.FontSize = 38;
-                        line2Block.FontSize = 38;
+                        for (int i = 0; i < 10; i++) 
+                        {
+                            lineBlocks[i].FontSize = 38;
+                            lineBlocks[i].MinHeight = lineBlocks[i].FontSize * 1.5;
+                        }
                         break;
                     case CaptionStyle.YellowOnBlue:
                         background.Background = new SolidColorBrush(Color.FromArgb(200, 0, 51, 153)); // Dark Blue
                         background.BorderBrush = new SolidColorBrush(Color.FromArgb(150, 0, 102, 255));
-                        line1Block.Foreground = new SolidColorBrush(Color.FromArgb(200, 255, 255, 0)); // Pale Yellow
-                        line2Block.Foreground = Brushes.Yellow;
+                        for (int i = 0; i < 10; i++) lineBlocks[i].Foreground = Brushes.Yellow;
+                        lineBlocks[0].Foreground = new SolidColorBrush(Color.FromArgb(200, 255, 255, 0)); // Pale Yellow
                         break;
                 }
 
                 // Recalculate wrapping instantly anytime font size changes
-                window.MinHeight = (line1Block.FontSize * 3) + 20;
+                // Show at least 2 lines + 20px padding
+                window.MinHeight = (lineBlocks[0].MinHeight * 2) + 20 + (lineBlocks[0].Margin.Bottom * 2);
             };
 
             styleCombo.SelectionChanged += (s, e) => 
@@ -403,8 +409,8 @@ namespace LiveTranscriptionApp
             {
                 if (globalService != null)
                 {
-                    line1Block.Text = "Shutting down safely...";
-                    line2Block.Text = "";
+                    lineBlocks[0].Text = "Shutting down safely...";
+                    lineBlocks[1].Text = "";
                     await globalService.DisposeAsync();
                 }
                 Application.Current.Shutdown();
@@ -425,27 +431,45 @@ namespace LiveTranscriptionApp
             {
                 try
                 {
-                    line2Block.Text = "Downloading Whisper Model...";
+                    lineBlocks[1].Text = "Downloading Whisper Model...";
                     var modelPath = await ModelDownloader.EnsureModelExists("tiny");
-                    line1Block.Text = "";
-                    line2Block.Text = "Initializing...";
+                    lineBlocks[0].Text = "";
+                    lineBlocks[1].Text = "Initializing...";
 
-                    // Output manager owns all subtitle display logic
-                    var outputManager = new Output.SubtitleOutputManager(
-                        text => line1Block.Text = text,
-                        text => line2Block.Text = text
-                    );
+                    // Generate array of dispatcher actions to feed to the 10-line SubtitleManager
+                    var dispatchers = new Action<string>[10];
+                    for (int i = 0; i < 10; i++)
+                    {
+                        int index = i; // capture loop variable
+                        dispatchers[index] = text => lineBlocks[index].Text = text;
+                    }
+
+                    var outputManager = new Output.SubtitleOutputManager(dispatchers);
                     
                     Func<int> calculateChars = () => 
                     {
-                        double scaleFactor = line1Block.FontSize / 20.0;
+                        double scaleFactor = lineBlocks[0].FontSize / 20.0;
                         return (int)((window.ActualWidth / 11.5) / scaleFactor);
                     };
 
                     outputManager.CharsPerLine = calculateChars();
+                    double initialRowHeight = lineBlocks[0].MinHeight + lineBlocks[0].Margin.Bottom;
+                    // ActualHeight - 20 accounts for the window Border Padding of Top 10 + Bottom 10.
+                    outputManager.VisibleLines = Math.Max(2, Math.Min(10, (int)((window.ActualHeight - 20) / initialRowHeight)));
 
                     // Dynamically recalculate char limit when the user resizes the window OR changes the font size
-                    window.SizeChanged += (sender, args) => outputManager.CharsPerLine = calculateChars();
+                    window.SizeChanged += (sender, args) => {
+                        outputManager.CharsPerLine = calculateChars();
+                        // Dynamically reveal TextBlocks if window height increases to fit them
+                        double rowHeight = lineBlocks[0].MinHeight + lineBlocks[0].Margin.Bottom;
+                        int maxVisibleLines = Math.Max(2, Math.Min(10, (int)((window.ActualHeight - 20) / rowHeight)));
+                        outputManager.VisibleLines = maxVisibleLines;
+                        
+                        for (int i = 0; i < 10; i++)
+                        {
+                            lineBlocks[i].Visibility = i < maxVisibleLines ? Visibility.Visible : Visibility.Collapsed;
+                        }
+                    };
                     settingsButton.Click += (sender, args) => {
                         // After settings close, ensure the character wrapping map recalculates for Large Text
                         outputManager.CharsPerLine = calculateChars();
@@ -469,8 +493,8 @@ namespace LiveTranscriptionApp
                     globalService = service;
 
                     await service.InitializeAsync(modelPath);
-                    line1Block.Text = "Listening...";
-                    line2Block.Text = "";
+                    lineBlocks[0].Text = "Listening...";
+                    lineBlocks[1].Text = "";
                     service.Start();
                 }
                 catch (Exception ex)
@@ -485,7 +509,7 @@ namespace LiveTranscriptionApp
                         ? $"\nModel: {modelPath} ({new FileInfo(modelPath).Length} bytes)"
                         : $"\nModel: {modelPath} MISSING";
 
-                    line2Block.Text = $"Error: {ex.GetType().Name}";
+                    lineBlocks[1].Text = $"Error: {ex.GetType().Name}";
                     MessageBox.Show($"Failed to initialize:\n{errorMessage}\n\nStack: {ex.StackTrace}", "Initialization Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             };
