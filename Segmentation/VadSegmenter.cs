@@ -97,7 +97,7 @@ namespace LiveTranscriptionApp.Segmentation
                 OnSegment?.Invoke(_lastPartialText, true);  // isFinal = true
                 _lastPartialText = "";
                 _committed       = true;
-                _audio.ClearSession();
+                _audio.ClearSession(20); // Keep 2 seconds of audio for overlapping context
             }
         }
 
@@ -191,7 +191,7 @@ namespace LiveTranscriptionApp.Segmentation
                         {
                             // Context completely broken! Force commit old string to protect it.
                             OnSegment?.Invoke(_lastPartialText, true);
-                            _audio.ClearSession();
+                            _audio.ClearSession(20); // Keep overlap
                             _lastPartialText = text;
                             _committed = false;
                             OnSegment?.Invoke(text, false);
@@ -209,7 +209,7 @@ namespace LiveTranscriptionApp.Segmentation
                         OnSegment?.Invoke(text, true);  // isFinal = true (commit)
                         _lastPartialText = "";
                         _committed       = true;
-                        _audio.ClearSession();
+                        _audio.ClearSession(20); // Keep overlap context
                     }
                     else
                     {

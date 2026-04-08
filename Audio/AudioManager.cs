@@ -141,9 +141,22 @@ namespace LiveTranscriptionApp.Audio
         }
 
         /// <summary>Clear the rolling session window (called after sentence commit or long silence).</summary>
-        public void ClearSession()
+        public void ClearSession(int keepLastChunks = 0)
         {
-            lock (_bufferLock) { _sessionQueue.Clear(); }
+            lock (_bufferLock) 
+            {
+                if (keepLastChunks <= 0 || _sessionQueue.Count <= keepLastChunks)
+                {
+                    _sessionQueue.Clear();
+                }
+                else
+                {
+                    var chunksToKeep = _sessionQueue.Skip(_sessionQueue.Count - keepLastChunks).ToList();
+                    _sessionQueue.Clear();
+                    foreach (var chunk in chunksToKeep)
+                        _sessionQueue.Enqueue(chunk);
+                }
+            }
         }
 
         public void Dispose()
