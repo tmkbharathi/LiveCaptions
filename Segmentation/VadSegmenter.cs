@@ -109,14 +109,15 @@ namespace LiveTranscriptionApp.Segmentation
             {
                 await _audio.WaitAsync();
 
-                // While Whisper is busy, drain the queue into the session buffer
-                if (_whisper.IsBusy)
+                // Consume ALL pending chunks that arrived while Whisper was busy on the last iteration.
+                // This prevents the audio queue from backing up and causing massive lag/stuttering.
+                bool consumedAny = false;
+                while (_audio.TryConsumeChunk())
                 {
-                    _audio.DrainQueue();
-                    continue;
+                    consumedAny = true;
                 }
 
-                if (!_audio.TryConsumeChunk()) continue;
+                if (!consumedAny) continue;
 
                 // Need at least 0.2 s (MinSessionChunks) before first inference
                 if (_audio.SessionByteCount < MinSessionChunks * AudioManager.ChunkSize) continue;
