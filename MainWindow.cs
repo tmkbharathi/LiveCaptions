@@ -464,6 +464,11 @@ namespace LiveTranscriptionApp
                     double rowHeight = lineBlocks[0].MinHeight + lineBlocks[0].Margin.Bottom;
                     // ActualHeight - 30 accounts for window vertical padding + safety buffer.
                     outputManager.VisibleLines = Math.Max(2, Math.Min(10, (int)((this.ActualHeight - 30) / rowHeight)));
+                    
+                    for (int i = 0; i < 10; i++)
+                    {
+                        lineBlocks[i].Visibility = i < outputManager.VisibleLines ? Visibility.Visible : Visibility.Collapsed;
+                    }
                 }
             };
 
@@ -563,6 +568,11 @@ namespace LiveTranscriptionApp
                     double initialRowHeight = lineBlocks[0].MinHeight + lineBlocks[0].Margin.Bottom;
                     // ActualHeight - 30 accounts for window vertical padding + safety buffer.
                     outputManager.VisibleLines = Math.Max(2, Math.Min(10, (int)((this.ActualHeight - 30) / initialRowHeight)));
+
+                    for (int i = 0; i < 10; i++)
+                    {
+                        lineBlocks[i].Visibility = i < outputManager.VisibleLines ? Visibility.Visible : Visibility.Collapsed;
+                    }
 
                     // Dynamically recalculate char limit when the user resizes the window OR changes the font size
                     this.SizeChanged += (sender, args) => {

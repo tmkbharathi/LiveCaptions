@@ -120,48 +120,76 @@ namespace LiveTranscriptionApp.Output
             if (string.IsNullOrWhiteSpace(history)) return addition;
             if (string.IsNullOrWhiteSpace(addition)) return history;
 
-            int bestOverlap = 0;
-            int minLen = Math.Min(history.Length, addition.Length);
+            string[] hWords = history.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            string[] aWords = addition.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
-            ReadOnlySpan<char> hSpan = history.AsSpan();
-            ReadOnlySpan<char> aSpan = addition.AsSpan();
+            int maxOverlapWords = Math.Min(hWords.Length, Math.Min(aWords.Length, 15)); // Limit to 15 words
+            int bestOverlapCount = 0;
 
-            // Find overlapping words without allocating arrays
-            for (int i = 1; i <= minLen; i++)
+            for (int overlapCount = 1; overlapCount <= maxOverlapWords; overlapCount++)
             {
-                // To safely check word boundaries we only check overlaps where a word boundary exists
-                // Addition prefix length i
-                if (i < aSpan.Length && !char.IsWhiteSpace(aSpan[i])) continue;
-
-                // history suffix length i
-                if (hSpan.Length - i - 1 >= 0 && !char.IsWhiteSpace(hSpan[hSpan.Length - i - 1])) continue;
-
-                var hSub = hSpan.Slice(hSpan.Length - i);
-                var aSub = aSpan.Slice(0, i);
-
-                // Ignore punctuation mismatches ( Whisper will often change punctuation rapidly between inferences )
-                int hTrimStart = 0, hTrimEnd = hSub.Length;
-                while (hTrimStart < hSub.Length && char.IsPunctuation(hSub[hTrimStart])) hTrimStart++;
-                while (hTrimEnd > hTrimStart && char.IsPunctuation(hSub[hTrimEnd - 1])) hTrimEnd--;
-
-                int aTrimStart = 0, aTrimEnd = aSub.Length;
-                while (aTrimStart < aSub.Length && char.IsPunctuation(aSub[aTrimStart])) aTrimStart++;
-                while (aTrimEnd > aTrimStart && char.IsPunctuation(aSub[aTrimEnd - 1])) aTrimEnd--;
-
-                if (hSub.Slice(hTrimStart, hTrimEnd - hTrimStart).Equals(aSub.Slice(aTrimStart, aTrimEnd - aTrimStart), StringComparison.OrdinalIgnoreCase))
+                int matchCount = 0;
+                for (int i = 0; i < overlapCount; i++)
                 {
-                    bestOverlap = i;
+                    string hWord = StripPunctuation(hWords[hWords.Length - overlapCount + i]);
+                    string aWord = StripPunctuation(aWords[i]);
+
+                    if (string.Equals(hWord, aWord, StringComparison.OrdinalIgnoreCase))
+                    {
+                        matchCount++;
+                    }
+                    else if (hWord.Length > 3 && aWord.Length > 3 && ComputeLevenshtein(hWord.ToLowerInvariant(), aWord.ToLowerInvariant()) <= 1)
+                    {
+                        matchCount++;
+                    }
                 }
+
+                if (overlapCount <= 2 && matchCount == overlapCount)
+                    bestOverlapCount = overlapCount;
+                else if (overlapCount > 2 && overlapCount <= 5 && matchCount >= overlapCount - 1)
+                    bestOverlapCount = overlapCount;
+                else if (overlapCount > 5 && matchCount >= overlapCount - 2)
+                    bestOverlapCount = overlapCount;
             }
 
-            if (bestOverlap > 0)
+            if (bestOverlapCount > 0)
             {
-                string newAddition = addition.Substring(bestOverlap).TrimStart();
-                return newAddition.Length > 0 ? $"{history} {newAddition}" : history;
+                var remainingAddition = string.Join(" ", aWords.Skip(bestOverlapCount));
+                return remainingAddition.Length > 0 ? $"{history} {remainingAddition}" : history;
             }
 
-            // No overlap found, just concatenate
             return $"{history} {addition}";
+        }
+
+        private static string StripPunctuation(string word)
+        {
+            int start = 0, end = word.Length;
+            while (start < end && char.IsPunctuation(word[start])) start++;
+            while (end > start && char.IsPunctuation(word[end - 1])) end--;
+            return start < end ? word.Substring(start, end - start) : "";
+        }
+
+        private static int ComputeLevenshtein(string s, string t)
+        {
+            int n = s.Length, m = t.Length;
+            if (n == 0) return m;
+            if (m == 0) return n;
+            int[] d = new int[m + 1];
+            for (int i = 0; i <= m; i++) d[i] = i;
+            for (int i = 1; i <= n; i++)
+            {
+                int prev = i;
+                for (int j = 1; j <= m; j++)
+                {
+                    int cost = s[i - 1] == t[j - 1] ? 0 : 1;
+                    int temp = d[j];
+                    d[j] = Math.Min(Math.Min(d[j] + 1, prev + 1), d[j - 1] + cost);
+                    d[j - 1] = prev;
+                    prev = temp;
+                }
+                d[m] = prev;
+            }
+            return d[m];
         }
 
         // ── Block Dispatcher ────────────────────────────────────────
