@@ -15,8 +15,8 @@ namespace LiveTranscriptionApp
         private Output.SubtitleOutputManager? outputManager;
 
         private TextBlock[] lineBlocks = new TextBlock[10];
-        private Border background;
-        private Border audioIndicator;
+        private Border background = null!;
+        private Border audioIndicator = null!;
 
         public MainWindow()
         {
@@ -258,16 +258,50 @@ namespace LiveTranscriptionApp
                 IsChecked = Preferences.IncludeMicrophone,
                 Margin = new Thickness(0, 0, 0, 10)
             };
-            micCheck.Checked += (s, e) => {
+            micCheck.Checked += async (s, e) => {
                 Preferences.IncludeMicrophone = true;
                 autoDetectItem.IsEnabled = true;
+                AppSettingsManager.Save();
+                if (activeService != null)
+                {
+                    lineBlocks[0].Text = "Restarting for mic...";
+                    lineBlocks[1].Text = "";
+                    await activeService.DisposeAsync();
+                    var modelPath = await ModelDownloader.EnsureModelExists("tiny");
+                    var service = new TranscriptionService(
+                        (text, isFinal) => { this.Dispatcher.Invoke(() => outputManager?.OnText(text, isFinal)); },
+                        level => { this.Dispatcher.InvokeAsync(() => { audioIndicator.Opacity = level > 0.01 ? 1.0 : 0.0; }); }
+                    );
+                    activeService = service;
+                    await service.InitializeAsync(modelPath);
+                    lineBlocks[0].Text = "Listening...";
+                    lineBlocks[1].Text = "";
+                    service.Start();
+                }
             };
-            micCheck.Unchecked += (s, e) => {
+            micCheck.Unchecked += async (s, e) => {
                 Preferences.IncludeMicrophone = false;
                 autoDetectItem.IsEnabled = false;
                 if (langCombo.SelectedIndex == 0)
                 {
                     langCombo.SelectedIndex = 1; // Fallback to English
+                }
+                AppSettingsManager.Save();
+                if (activeService != null)
+                {
+                    lineBlocks[0].Text = "Restarting service...";
+                    lineBlocks[1].Text = "";
+                    await activeService.DisposeAsync();
+                    var modelPath = await ModelDownloader.EnsureModelExists("tiny");
+                    var service = new TranscriptionService(
+                        (text, isFinal) => { this.Dispatcher.Invoke(() => outputManager?.OnText(text, isFinal)); },
+                        level => { this.Dispatcher.InvokeAsync(() => { audioIndicator.Opacity = level > 0.01 ? 1.0 : 0.0; }); }
+                    );
+                    activeService = service;
+                    await service.InitializeAsync(modelPath);
+                    lineBlocks[0].Text = "Listening...";
+                    lineBlocks[1].Text = "";
+                    service.Start();
                 }
             };
 

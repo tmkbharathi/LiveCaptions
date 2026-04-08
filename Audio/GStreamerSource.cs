@@ -45,18 +45,25 @@ namespace LiveTranscriptionApp.Audio
                 var speakerSrc = ElementFactory.Make("wasapi2src", "speakerSrc");
                 var micSrc     = ElementFactory.Make("wasapi2src", "micSrc");
                 var mixer      = ElementFactory.Make("audiomixer", "mixer");
+                
+                var speakerConvert = ElementFactory.Make("audioconvert", "speakerConvert");
+                var speakerResample = ElementFactory.Make("audioresample", "speakerResample");
+                var micConvert = ElementFactory.Make("audioconvert", "micConvert");
+                var micResample = ElementFactory.Make("audioresample", "micResample");
 
-                if (speakerSrc == null || micSrc == null || mixer == null)
-                    throw new Exception("GStreamer elements missing for dual-channel (wasapi2src, audiomixer).");
+                if (speakerSrc == null || micSrc == null || mixer == null || speakerConvert == null || speakerResample == null || micConvert == null || micResample == null)
+                    throw new Exception("GStreamer elements missing for dual-channel audio capture.");
 
                 speakerSrc["loopback"] = true;
                 micSrc["loopback"] = false;
 
-                _pipeline.Add(speakerSrc, micSrc, mixer, convert, resample, sink);
+                _pipeline.Add(speakerSrc, speakerConvert, speakerResample, micSrc, micConvert, micResample, mixer, convert, resample, sink);
                 
-                // Link sources to mixer conditionally
-                speakerSrc.Link(mixer);
-                micSrc.Link(mixer);
+                // Link speaker path to mixer
+                Element.Link(speakerSrc, speakerConvert, speakerResample, mixer);
+                
+                // Link mic path to mixer
+                Element.Link(micSrc, micConvert, micResample, mixer);
                 
                 // Link mixer to the standard output chain
                 Element.Link(mixer, convert, resample, sink);
